@@ -119,6 +119,7 @@ uniform float time;
 uniform int  uIsWater;
 uniform vec3 fogColor;
 uniform vec3 uColorOverride;
+uniform sampler2D uFlagTexture;
 
 void main(){
     // 1. CHUẨN BỊ VECTOR
@@ -176,7 +177,6 @@ void main(){
         if(length(uColorOverride) > 0.1){ 
             albedo = uColorOverride; 
         } else {
-            // Logic cũ: Tô màu thuyền
             vec3 paintColor = vec3(0.70, 0.25, 0.15); 
             vec3 woodColor  = vec3(0.40, 0.25, 0.18);
             float isDeck = smoothstep(0.15, 0.20, vPos.y);
@@ -484,6 +484,9 @@ static void buildBoatMeshComplex(
     glm::vec3 windshieldPos(0.0f, 0.55f, -0.45f); // Trước cabin chút
     glm::vec3 windshieldSize(0.9f, 0.25f, 0.05f);
     addCube(V, I, windshieldPos, windshieldSize);
+
+    addCube(V, I, glm::vec3(0.0f, 2.0f, -0.8f), glm::vec3(0.05f, 3.0f, 0.05f));
+    addCube(V, I, glm::vec3(0.0f, 3.5f, -1.25f), glm::vec3(0.02f, 0.6f, 0.9f));
 }
 
 // ===================== MAIN =====================
@@ -514,7 +517,7 @@ int main()
 
 #if !SAFE_NO_RESPONSIVE
     glfwSetFramebufferSizeCallback(win, [](GLFWwindow *, int w, int h)
-                                   { glViewport(0, 0, w ? h : 1, h ? h : 1); });
+                                   { glViewport(0, 0, w ? w : 1, h ? h : 1); });
 #endif
 
     glEnable(GL_DEPTH_TEST);
@@ -531,8 +534,8 @@ int main()
         s += body;
         return s;
     };
-    std::string VS = makeSrc(VS_BODY, true, NO_DERIVATIVES);
-    std::string FS = makeSrc(FS_BODY, true, NO_DERIVATIVES);
+    std::string VS = makeSrc(VS_BODY, SAFE_NO_RESPONSIVE, NO_DERIVATIVES);
+    std::string FS = makeSrc(FS_BODY, SAFE_NO_RESPONSIVE, NO_DERIVATIVES);
     GLuint vs = compile(GL_VERTEX_SHADER, VS);
     GLuint fs = compile(GL_FRAGMENT_SHADER, FS);
     GLuint prog = link(vs, fs);
@@ -611,7 +614,6 @@ int main()
     rebuildOceanMesh(guiOceanN);
 
     // --- KHỞI TẠO THÙNG HÀNG (COIN) ---
-
     std::vector<glm::vec3> Cv;
     std::vector<unsigned int> Ci;
     addCube(Cv, Ci, glm::vec3(0), glm::vec3(1.0f)); // Tạo hình hộp
@@ -779,19 +781,19 @@ int main()
         // VẼ GIAO DIỆN (HUD)
         // --- CỬA SỔ 2: MISSION CONTROL ---
         ImGui::SetNextWindowPos(ImVec2(10, 10));
-        ImGui::SetNextWindowSize(ImVec2(300, 200)); // Tăng chiều cao lên chút để đủ chỗ
+        ImGui::SetNextWindowSize(ImVec2(300, 150)); // Tăng chiều cao lên chút để đủ chỗ
         ImGui::Begin("MISSION CONTROL");
 
         if (gameState == MENU)
         {
             ImGui::TextColored(ImVec4(1, 1, 0, 1), "NHIEM VU: THU THAP 10 THUNG HANG");
-            ImGui::Text("Ban co 90 giay.");
+            ImGui::Text("Ban co 40 giay.");
             ImGui::Text("Dieu khien: W/A/S/D");
             if (ImGui::Button("BAT DAU (START)", ImVec2(280, 40)))
             {
                 // RESET GAME KHI BẮT ĐẦU
                 gameState = PLAYING;
-                gameTimer = 90.0f;
+                gameTimer = 40.0f;
                 score = 0;
                 boatWorldPos = glm::vec3(0);
                 boatHeading = 0.0f;
@@ -807,7 +809,7 @@ int main()
             ImGui::Text("DA LAY: %d / 10", score);
 
             ImGui::Separator();
-            
+
             if (ImGui::Button("CHOI LAI TU DAU", ImVec2(280, 30)))
             {
                 gameState = MENU;
@@ -830,8 +832,8 @@ int main()
 
             if (ImGui::Button("THU LAI (RETRY)", ImVec2(280, 40)))
             {
-                gameState = PLAYING; 
-                gameTimer = 90.0f;
+                gameState = PLAYING;
+                gameTimer = 40.0f;
                 score = 0;
                 boatWorldPos = glm::vec3(0);
                 boatHeading = 0.0f;
@@ -840,11 +842,7 @@ int main()
                     c.active = true;
             }
         }
-
-        ImGui::Separator();
-        ImGui::SliderFloat("Do cao song", &guiWaveHeight, 0.0f, 10.0f);
-
-        ImGui::End(); 
+        ImGui::End();
 
         // Chỉ cho phép lái tàu khi đang PLAYING
         if (gameState == PLAYING)
@@ -885,43 +883,50 @@ int main()
         // === XỬ LÝ CAMERA THEO TRẠNG THÁI GAME ===
         glm::vec3 camPos;
 
-        if (gameState == PLAYING) {
+        if (gameState == PLAYING)
+        {
             // --- GÓC NHÌN THỨ 3 (THIRD PERSON VIEW) ---
             // Tính vector hướng trước mặt của thuyền (dựa vào boatHeading)
             glm::vec3 boatForward(sin(boatHeading), 0, cos(boatHeading));
 
-            // Đặt Camera: 
+            // Đặt Camera:
             // - Nằm sau lưng thuyền: trừ đi vector Forward * khoảng cách (12m)
             // - Cao hơn thuyền: cộng thêm vector Y * độ cao (5m)
             float distBehind = 12.0f;
             float height = 5.0f;
-            
+
             // Dùng mix để camera bám theo mượt hơn một chút (Lerp)
             glm::vec3 targetCamPos = boatWorldPos - (boatForward * distBehind) + glm::vec3(0, height, 0);
-            
+
             // Gán trực tiếp (hoặc có thể dùng biến smooth nếu muốn mượt hơn nữa)
             camPos = targetCamPos;
 
             // Điểm nhìn (Target): Nhìn vào phía trước mũi tàu một chút
             camTarget = boatWorldPos + (boatForward * 5.0f) + glm::vec3(0, 2.0f, 0);
-            
-        } else {
+        }
+        else
+        {
             // --- GÓC NHÌN TỰ DO (MENU / GAME OVER) ---
-            if (glfwGetKey(win, GLFW_KEY_LEFT) == GLFW_PRESS) yaw += 60.f * dt;
-            if (glfwGetKey(win, GLFW_KEY_RIGHT) == GLFW_PRESS) yaw -= 60.f * dt;
-            if (glfwGetKey(win, GLFW_KEY_UP) == GLFW_PRESS) pitch = glm::clamp(pitch + 60.f * dt, -10.f, 80.f);
-            if (glfwGetKey(win, GLFW_KEY_DOWN) == GLFW_PRESS) pitch = glm::clamp(pitch - 60.f * dt, -10.f, 80.f);
-            
-            if (glfwGetKey(win, GLFW_KEY_Q) == GLFW_PRESS) radius = glm::max(5.f, radius - 30.f*dt);
-            if (glfwGetKey(win, GLFW_KEY_E) == GLFW_PRESS) radius += 30.f*dt;
+            if (glfwGetKey(win, GLFW_KEY_LEFT) == GLFW_PRESS)
+                yaw += 60.f * dt;
+            if (glfwGetKey(win, GLFW_KEY_RIGHT) == GLFW_PRESS)
+                yaw -= 60.f * dt;
+            if (glfwGetKey(win, GLFW_KEY_UP) == GLFW_PRESS)
+                pitch = glm::clamp(pitch + 60.f * dt, -10.f, 80.f);
+            if (glfwGetKey(win, GLFW_KEY_DOWN) == GLFW_PRESS)
+                pitch = glm::clamp(pitch - 60.f * dt, -10.f, 80.f);
+
+            if (glfwGetKey(win, GLFW_KEY_Q) == GLFW_PRESS)
+                radius = glm::max(5.f, radius - 30.f * dt);
+            if (glfwGetKey(win, GLFW_KEY_E) == GLFW_PRESS)
+                radius += 30.f * dt;
 
             // Tính toán vị trí cầu (Spherical coordinates)
             camTarget = boatWorldPos + glm::vec3(0, 2.0f, 0);
             camPos = camTarget + glm::vec3(
-                radius * cos(glm::radians(yaw)) * cos(glm::radians(pitch)),
-                radius * sin(glm::radians(pitch)),
-                radius * sin(glm::radians(yaw)) * cos(glm::radians(pitch))
-            );
+                                     radius * cos(glm::radians(yaw)) * cos(glm::radians(pitch)),
+                                     radius * sin(glm::radians(pitch)),
+                                     radius * sin(glm::radians(yaw)) * cos(glm::radians(pitch)));
         }
 
         // Tạo ma trận View cuối cùng
@@ -998,41 +1003,44 @@ int main()
         // Gửi màu vàng (R=1, G=0.8, B=0)
         glUniform3f(glGetUniformLocation(prog, "uColorOverride"), 1.0f, 0.8f, 0.0f);
 
-        for(auto& c : coins) {
-            if(!c.active) continue;
+        for (auto &c : coins)
+        {
+            if (!c.active)
+                continue;
 
-            // Kiểm tra va chạm 
+            // Kiểm tra va chạm
             float dist = glm::distance(glm::vec2(boatWorldPos.x, boatWorldPos.z), glm::vec2(c.pos.x, c.pos.z));
-            if(gameState == PLAYING && dist < 3.0f) { 
+            if (gameState == PLAYING && dist < 3.0f)
+            {
                 c.active = false;
                 score++;
             }
 
             glm::vec2 pos2D(c.pos.x, c.pos.z);
             glm::vec3 coinP = gerstnerCPU(pos2D, d, A, Lw, Ww, S, t);
-            coinP.y *= guiWaveHeight; 
+            coinP.y *= guiWaveHeight;
 
             glm::vec3 nW = normalCPU(pos2D, d, A, Lw, Ww, S, t);
 
             // Pha trộn 80% hướng lên trời (0,1,0) và 20% hướng sóng (nW)
             // Giúp thùng hàng luôn giữ thẳng đứng, chỉ lắc nhẹ khi sóng to
-            glm::vec3 stableN = glm::normalize(glm::mix(glm::vec3(0,1,0), nW, 0.5f));
+            glm::vec3 stableN = glm::normalize(glm::mix(glm::vec3(0, 1, 0), nW, 0.5f));
 
             // Tạo ma trận biến đổi (Matrix)
             glm::mat4 cM = glm::translate(glm::mat4(1), glm::vec3(c.pos.x, coinP.y - 0.2f, c.pos.z)); // -0.2 để chìm nhẹ xuống nước
-            
+
             // Xoay theo hướng ổn định (Vật lý)
-            cM = cM * glm::mat4_cast(glm::rotation(glm::vec3(0,1,0), stableN));
-            
+            cM = cM * glm::mat4_cast(glm::rotation(glm::vec3(0, 1, 0), stableN));
+
             // Xoay nhẹ theo trục Y (Trục thẳng đứng) để tạo vẻ tự nhiên
             // Thay vì xoay lung tung như cũ, giờ nó chỉ xoay ngang từ từ
-            cM = glm::rotate(cM, c.angle + t * 0.5f, glm::vec3(0,1,0)); 
-            
+            cM = glm::rotate(cM, c.angle + t * 0.5f, glm::vec3(0, 1, 0));
+
             cM = glm::scale(cM, glm::vec3(1.5f)); // Kích thước
 
             // Vẽ
-            glUniformMatrix4fv(glGetUniformLocation(prog,"model"),1,0,&cM[0][0]);
-            glDrawElements(GL_TRIANGLES,(GLsizei)Ci.size(),GL_UNSIGNED_INT,0);
+            glUniformMatrix4fv(glGetUniformLocation(prog, "model"), 1, 0, &cM[0][0]);
+            glDrawElements(GL_TRIANGLES, (GLsizei)Ci.size(), GL_UNSIGNED_INT, 0);
         }
 
         // Trả lại màu bình thường để vẽ thuyền (QUAN TRỌNG)
@@ -1057,13 +1065,10 @@ int main()
 
         // TÍNH TOÁN MA TRẬN THUYỀN
         // Dịch chuyển đến vị trí sóng
-        glm::mat4 boatM = glm::translate(glm::mat4(1), smoothCenter + glm::vec3(0, boatScale.y * 0.5f, 0));
-        // Nghiêng theo sóng
+        glm::mat4 boatM = glm::translate(glm::mat4(1), smoothCenter + glm::vec3(0, 1.05f, 0));
         boatM = boatM * glm::mat4_cast(smoothRot);
-        // Xoay theo hướng lái (MỚI)
         boatM = glm::rotate(boatM, boatHeading, glm::vec3(0, 1, 0));
-        // Scale
-        boatM = glm::scale(boatM, boatScale);
+        boatM = glm::scale(boatM, glm::vec3(3, 2.1, 5));
 
         glDisable(GL_CULL_FACE); // thấy cả bên trong khoang
         glUniform1i(uIsWater, 0);
@@ -1082,10 +1087,6 @@ int main()
     glDeleteVertexArrays(1, &waterVAO);
     glDeleteBuffers(1, &waterVBO);
     glDeleteBuffers(1, &waterEBO);
-
-    glDeleteVertexArrays(1, &cVAO);
-    glDeleteBuffers(1, &cVBO);
-    glDeleteBuffers(1, &cEBO);
     glDeleteVertexArrays(1, &boatVAO);
     glDeleteBuffers(1, &boatVBO);
     glDeleteBuffers(1, &boatEBO);
@@ -1096,6 +1097,7 @@ int main()
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
+
 
     glfwDestroyWindow(win);
     glfwTerminate();
