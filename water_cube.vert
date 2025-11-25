@@ -70,4 +70,8 @@ void main(){
     vPos      = worldP;
     vNormalVS = normalize(worldN);
     gl_Position = projection * view * vec4(worldP, 1.0);
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 1b0837f84cd16f2e7cc6ba74c499a8ef901d7956

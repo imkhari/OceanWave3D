@@ -2126,4 +2126,8 @@ GLAPI PFNGLSECONDARYCOLORP3UIVPROC glad_glSecondaryColorP3uiv;
 }
 #endif
 
+<<<<<<< HEAD
 #endif
+=======
+#endif
+>>>>>>> 1b0837f84cd16f2e7cc6ba74c499a8ef901d7956

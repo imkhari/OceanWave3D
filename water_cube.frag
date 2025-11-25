@@ -51,4 +51,8 @@ void main(){
 
     finalColor = mix(finalColor, vec3(1.0), 0.1 * fresnel); // rim nhẹ
     FragColor = vec4(finalColor, 1.0);
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 1b0837f84cd16f2e7cc6ba74c499a8ef901d7956

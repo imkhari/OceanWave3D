@@ -308,4 +308,8 @@ typedef enum {
     KHRONOS_BOOLEAN_ENUM_FORCE_SIZE = KHRONOS_MAX_ENUM
 } khronos_boolean_enum_t;
 
+<<<<<<< HEAD
 #endif /* __khrplatform_h_ */
+=======
+#endif /* __khrplatform_h_ */
+>>>>>>> 1b0837f84cd16f2e7cc6ba74c499a8ef901d7956
