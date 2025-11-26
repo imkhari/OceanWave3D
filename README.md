@@ -20,7 +20,8 @@ A real-time 3D ocean and boat simulation project created using C++ and OpenGL. T
     *   UI displays game state, score, and a timer.
 *   **In-Game GUI**:
     *   An ImGui-based control panel to tweak simulation parameters in real-time.
-
+## Demo 
+![Demo](ss/ocean.png)
 ## Controls
 
 ### Camera (Menu/Game Over Screen)
