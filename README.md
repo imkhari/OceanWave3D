@@ -32,7 +32,6 @@ Chương trình tái hiện chuyển động thủy động lực học sóng bi
 ---
 
 ### 4. Chu kỳ Hoàng hôn & Bầu trời Mây Thủ tục (Procedural Sky)
-![Sunset Sky Simulation](ss/sunset_ocean_simulation.jpg)
 *Hoàng hôn trên đại dương với ánh sáng tán xạ Rayleigh/Mie, chuyển động mây động và chim hải âu chao lượn quanh ngọn hải đăng.*
 
 ---
