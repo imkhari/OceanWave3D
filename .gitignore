@@ -1,0 +1,18 @@
+# Build artifacts
+build/
+bin/
+out/
+*.o
+*.obj
+*.exe
+*.dylib
+*.so
+*.a
+
+# Editor & System files
+.DS_Store
+.cache/
+.vscode/
+compile_commands.json
+imgui.ini
+main.exe
