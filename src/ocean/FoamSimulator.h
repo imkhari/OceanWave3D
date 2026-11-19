@@ -9,9 +9,10 @@ public:
     FoamSimulator();
     ~FoamSimulator();
 
-    bool init(int resolution = 512, float domainSize = 240.0f);
-    void update(float dt, const glm::vec3 &boatPos, float boatSpeed, float boatHeading);
+    bool init(int resolution = 512, float domainSize = 120.0f);
+    void update(float dt, const glm::vec3 &boatPos, float boatSpeed, float boatHeading, float hullContact = 1.0f);
 
+    int getResolution() const { return m_resolution; }
     GLuint getFoamTexture() const { return m_colorTextures[m_currentRead]; }
     glm::vec2 getDomainCenter() const { return m_domainCenter; }
     float getDomainSize() const { return m_domainSize; }

@@ -53,10 +53,11 @@ bool Framebuffer::init(int width, int height, bool useHdr) {
     return true;
 }
 
-void Framebuffer::resize(int width, int height) {
+bool Framebuffer::resize(int width, int height) {
     if (width != m_width || height != m_height) {
-        init(width, height, m_useHdr);
+        return init(width, height, m_useHdr);
     }
+    return true;
 }
 
 void Framebuffer::bind() const {

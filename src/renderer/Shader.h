@@ -3,11 +3,15 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <string>
+#include <unordered_map>
 
 class Shader {
 public:
     Shader() : m_programID(0) {}
     ~Shader();
+    Shader(const Shader &) = delete;
+    Shader &operator=(const Shader &) = delete;
+    static void setAssetRoot(const std::string &path);
 
     bool loadFromFiles(const std::string &vertexPath, const std::string &fragmentPath);
     void use() const;
@@ -25,7 +29,10 @@ public:
     void setMat4(const std::string &name, const glm::mat4 &mat) const;
 
 private:
+    static std::string s_assetRoot;
     GLuint m_programID;
+    mutable std::unordered_map<std::string, GLint> m_locations;
+    GLint location(const std::string &name) const;
 
     static std::string readFile(const std::string &path);
     static GLuint compileShader(GLenum type, const std::string &source, const std::string &debugPath);

@@ -1,19 +1,8 @@
 #!/bin/bash
-set -e
-
-# Create and enter build directory
-mkdir -p build
-cd build
-
-# Configure and compile with CMake
-echo "==> Configuring CMake..."
-cmake ..
-
-echo "==> Building OceanWave3D..."
-cmake --build . -j$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
-mkdir -p assets
-cp -r ../assets/* assets/
-cp compile_commands.json ../compile_commands.json 2>/dev/null || true
-
-echo "==> Build successful! Starting OceanWave3D..."
-./OceanWave3D
+set -euo pipefail
+project_dir="$(cd "$(dirname "$0")" && pwd)"
+build_dir="$project_dir/build-macos"
+cmake -S "$project_dir" -B "$build_dir" -DCMAKE_BUILD_TYPE=Release
+cmake --build "$build_dir" -j "$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+cd "$build_dir"
+exec ./OceanWave3D "$@"

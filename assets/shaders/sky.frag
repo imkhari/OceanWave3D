@@ -51,20 +51,16 @@ float stars(vec3 dir, float nightFactor) {
     float starGrid = hash21(floor(skyUV));
     if (starGrid > 0.985) {
         float twinkle = sin(time * 3.0 + starGrid * 62.8) * 0.5 + 0.5;
-        return smoothstep(0.985, 1.0, starGrid) * twinkle * nightFactor;
+        vec2 p=fract(skyUV)-0.5;
+        float footprint=max(length(dFdx(skyUV)),length(dFdy(skyUV)));
+        float point=1.0-smoothstep(0.03,0.10+min(footprint,0.15),length(p));
+        return point * smoothstep(0.985,1.0,starGrid) * (0.65+0.35*twinkle) * nightFactor;
     }
     return 0.0;
 }
 
-// ACES Film Tone Mapping
-vec3 ACESFilm(vec3 x) {
-    float a = 2.51;
-    float b = 0.03;
-    float c = 2.43;
-    float d = 0.59;
-    float e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-}
+// Linear HDR output; display transform is applied once in postprocess.
+
 
 void main() {
     vec2 ndc = (gl_FragCoord.xy / uResolution) * 2.0 - 1.0;
@@ -81,7 +77,7 @@ void main() {
 
     // Sunset / Golden Hour rich horizon coloring
     if (uSunDir.y > -0.08 && uSunDir.y < 0.35) {
-        float sunsetGlow = smoothstep(0.35, -0.05, uSunDir.y) * pow(max(dot(dirW, normalize(uSunDir)), 0.0), 3.0);
+        float sunsetGlow = (1.0 - smoothstep(-0.05, 0.35, uSunDir.y)) * pow(max(dot(dirW, normalize(uSunDir)), 0.0), 3.0);
         sky += vec3(0.95, 0.38, 0.12) * (sunsetGlow * (1.0 - dirW.y * 0.8) * 1.5);
     }
 
@@ -142,9 +138,6 @@ void main() {
     float horizonHaze = pow(1.0 - clamp(dirW.y, 0.0, 1.0), 4.0);
     sky = mix(sky, uHorizonColor, horizonHaze * 0.85);
 
-    // 7. ACES Tone Mapping & Gamma 2.2
-    vec3 tonemapped = ACESFilm(sky);
-    vec3 sRGB = pow(tonemapped, vec3(1.0 / 2.2));
-
-    FragColor = vec4(sRGB, 1.0);
+    // 7. Linear HDR output
+    FragColor = vec4(max(sky, vec3(0.0)), 1.0);
 }

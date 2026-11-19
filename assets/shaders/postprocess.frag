@@ -14,12 +14,38 @@ uniform float uWiperAngle;       // radians (-1.1 to 1.1)
 uniform int uWiperActive;        // 1 = sweeping
 uniform vec2 uWiperPivot;        // typically (0.5, 0.05)
 uniform float uWiperLength;      // length of wiper blade (e.g. 0.85)
+uniform vec2 uGlassQuad[4];
+uniform int uGlassVisible;
 uniform int uIsCockpit;          // 1 = first-person cockpit view, 0 = 3rd-person / orbit
 
 // Underwater Submersion (Feature 3)
 uniform int uIsUnderwater;       // 1 = submerged
 uniform float uSubmergedDepth;   // meters below wave surface
 uniform vec3 uSunDir;
+
+uniform float uExposure;
+uniform int uAntialiasing;
+
+vec3 displayTransform(vec3 linearColor) {
+    vec3 x = max(linearColor * uExposure, vec3(0.0));
+    vec3 mapped = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+    return mix(mapped * 12.92, 1.055 * pow(mapped, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), mapped));
+}
+vec3 sceneSample(vec2 uv) {
+    vec3 center = texture(uSceneColor, uv).rgb;
+    if (uAntialiasing == 0) return center;
+    vec2 texel = 1.0 / max(uResolution, vec2(1.0));
+    vec3 n = texture(uSceneColor, uv + vec2(0.0, texel.y)).rgb;
+    vec3 s = texture(uSceneColor, uv - vec2(0.0, texel.y)).rgb;
+    vec3 e = texture(uSceneColor, uv + vec2(texel.x, 0.0)).rgb;
+    vec3 w = texture(uSceneColor, uv - vec2(texel.x, 0.0)).rgb;
+    vec3 luma = vec3(0.2126, 0.7152, 0.0722);
+    float c = dot(center, luma);
+    float lo = min(c, min(min(dot(n,luma),dot(s,luma)),min(dot(e,luma),dot(w,luma))));
+    float hi = max(c, max(max(dot(n,luma),dot(s,luma)),max(dot(e,luma),dot(w,luma))));
+    float edge = smoothstep(0.06, 0.22, (hi - lo) / max(hi, 0.1));
+    return mix(center, (n+s+e+w+center*4.0)/8.0, edge * 0.65);
+}
 
 float hash21(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -60,7 +86,7 @@ void main() {
         );
         vec2 distortUV = clamp(uv + waveOffset, 0.001, 0.999);
 
-        vec3 sceneCol = texture(uSceneColor, distortUV).rgb;
+        vec3 sceneCol = sceneSample(distortUV);
 
         // 2. Volumetric depth color extinction (Beer-Lambert ocean absorption)
         vec3 deepOceanTurquoise = vec3(0.003, 0.038, 0.085);
@@ -83,7 +109,7 @@ void main() {
         float bubble = 0.0;
         if (bHash > 0.94) {
             float bDist = length(bubbleFrac);
-            bubble = smoothstep(0.22, 0.16, bDist) * 0.65;
+            bubble = (1.0 - smoothstep(0.16, 0.22, bDist)) * 0.65;
         }
 
         // 5. Diving Goggle Vignette
@@ -91,7 +117,7 @@ void main() {
         float vig = smoothstep(0.95, 0.40, length(vigCoord));
 
         vec3 finalUnderwater = (waterGraded + causticTint + vec3(bubble)) * vig;
-        FragColor = vec4(finalUnderwater, 1.0);
+        FragColor = vec4(displayTransform(finalUnderwater), 1.0);
         return;
     }
 
@@ -99,7 +125,14 @@ void main() {
     // FEATURE 1: SCREEN-SPACE WATER DROPLETS & WINDSHIELD WIPER
     // =========================================================================
     // Effective wetness: in 3rd person, keep wetness very faint (lens condensation only)
-    float effectiveWetness = (uIsCockpit == 1) ? uWetness : (uWetness * 0.20);
+    bool positive=false,negative=false;
+    for(int i=0;i<4;++i) {
+        vec2 edge=uGlassQuad[(i+1)%4]-uGlassQuad[i], offset=uv-uGlassQuad[i];
+        float side=edge.x*offset.y-edge.y*offset.x;
+        positive=positive || side>0.0; negative=negative || side<0.0;
+    }
+    bool onWindshield=uGlassVisible==1 && !(positive && negative);
+    float effectiveWetness = onWindshield ? uWetness : 0.0;
 
     vec2 wiperPivot = uWiperPivot;
     vec2 bladeTip = wiperPivot + vec2(sin(uWiperAngle), cos(uWiperAngle)) * uWiperLength;
@@ -168,7 +201,7 @@ void main() {
 
                 float streakDist = length(vec2(streakX, (streakY - 0.5) * 4.0));
                 if (streakDist < 0.28) {
-                    float sFade = smoothstep(0.28, 0.08, streakDist);
+                    float sFade = (1.0 - smoothstep(0.08, 0.28, streakDist));
                     vec2 sNorm = normalize(vec2(streakX, streakY - 0.5)) * sFade;
                     dropNormal += sNorm * 0.020;
                     dropMask = max(dropMask, sFade);
@@ -180,13 +213,13 @@ void main() {
 
     // Sample background scene with delicate droplet refraction
     vec2 finalUV = clamp(uv + dropNormal, 0.001, 0.999);
-    vec3 sceneCol = texture(uSceneColor, finalUV).rgb;
+    vec3 sceneCol = sceneSample(finalUV);
 
     // Add droplet gloss & glint highlights
     vec3 outputCol = sceneCol + vec3(0.95, 0.96, 1.0) * (dropGlint * dropMask);
 
     // --- Render Windshield Wiper Blade (ONLY in Cockpit View when active!) ---
-    if (uIsCockpit == 1 && uWiperActive == 1) {
+    if (onWindshield && uWiperActive == 1) {
         if (distBlade < bladeThickness && uv.y > (wiperPivot.y + 0.02) && pixelDist < uWiperLength) {
             float bladeEdge = smoothstep(bladeThickness, bladeThickness * 0.4, distBlade);
             vec3 rubberCol = vec3(0.08, 0.08, 0.09);
@@ -195,5 +228,5 @@ void main() {
         }
     }
 
-    FragColor = vec4(outputCol, 1.0);
+    FragColor = vec4(displayTransform(outputCol), 1.0);
 }

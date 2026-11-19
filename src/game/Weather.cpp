@@ -137,7 +137,7 @@ void WeatherSystem::update(float dt, float time, const glm::vec3 &camPos, const 
             m_rainVertices[i * 2] = top;
             m_rainVertices[i * 2 + 1] = bot;
         }
-        m_rainMesh.upload(m_rainVertices, m_rainIndices);
+        m_rainMesh.updateVertices(m_rainVertices);
     }
 }
 
@@ -160,9 +160,10 @@ void WeatherSystem::renderRain(const Shader &rainShader, const glm::mat4 &view, 
     glDepthMask(GL_FALSE);
     glLineWidth(1.0f);
 
-    m_rainMesh.drawLines();
+    m_rainMesh.drawLines((m_quality == 0 ? 450 : (m_quality == 1 ? 900 : 1500)) * 2);
 
     glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
 }
 
 // -----------------------------------------------------------------------------
@@ -189,4 +190,5 @@ void WeatherSystem::buildRainMesh() {
         m_rainIndices[i * 2] = static_cast<unsigned int>(i * 2);
         m_rainIndices[i * 2 + 1] = static_cast<unsigned int>(i * 2 + 1);
     }
+    m_rainMesh.upload(m_rainVertices,m_rainIndices);
 }

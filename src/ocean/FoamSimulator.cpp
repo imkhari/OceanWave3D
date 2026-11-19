@@ -4,7 +4,7 @@
 
 FoamSimulator::FoamSimulator()
     : m_resolution(512),
-      m_domainSize(240.0f),
+      m_domainSize(120.0f),
       m_domainCenter(0.0f),
       m_prevCenter(0.0f),
       m_currentRead(0),
@@ -51,6 +51,8 @@ void FoamSimulator::setupBuffers() {
 
 bool FoamSimulator::init(int resolution, float domainSize) {
     cleanup();
+    m_currentRead=0; m_currentWrite=1;
+    m_domainCenter=m_prevCenter=glm::vec2(0);
     m_resolution = resolution;
     m_domainSize = domainSize;
     setupBuffers();
@@ -74,7 +76,7 @@ bool FoamSimulator::init(int resolution, float domainSize) {
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_colorTextures[i], 0);
 
         // Clear texture to zero
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
@@ -88,29 +90,37 @@ bool FoamSimulator::init(int resolution, float domainSize) {
     return true;
 }
 
-void FoamSimulator::update(float dt, const glm::vec3 &boatPos, float boatSpeed, float boatHeading) {
+void FoamSimulator::update(float dt, const glm::vec3 &boatPos, float boatSpeed, float boatHeading, float hullContact) {
     m_prevCenter = m_domainCenter;
-    m_domainCenter = glm::vec2(boatPos.x, boatPos.z);
+    const float texelWorld = m_domainSize / m_resolution;
+    // Integer-texel shifts avoid erasing the trail by resampling it at fractional offsets every frame.
+    m_domainCenter = glm::floor(glm::vec2(boatPos.x, boatPos.z)/texelWorld)*texelWorld;
     glm::vec2 shiftWorld = m_domainCenter - m_prevCenter;
     glm::vec2 uvShift = shiftWorld / m_domainSize;
 
     // Calculate bow and stern in world space
     glm::vec2 forward(std::sin(boatHeading), std::cos(boatHeading));
-    glm::vec2 bowPos = m_domainCenter + forward * 5.5f;
-    glm::vec2 sternPos = m_domainCenter - forward * 5.0f;
 
     glBindFramebuffer(GL_FRAMEBUFFER, m_fbo[m_currentWrite]);
     glViewport(0, 0, m_resolution, m_resolution);
     glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND); // BA hold signed transport velocities, never alpha blend this pass.
+    if (glm::length(shiftWorld)>m_domainSize*0.25f) {
+        // Reset/teleport: leave no false connecting wake across the ocean.
+        glClearColor(0,0,0,0);
+        glBindFramebuffer(GL_FRAMEBUFFER,m_fbo[m_currentRead]); glClear(GL_COLOR_BUFFER_BIT);
+        glBindFramebuffer(GL_FRAMEBUFFER,m_fbo[m_currentWrite]); glClear(GL_COLOR_BUFFER_BIT);
+        uvShift=glm::vec2(0);
+    }
 
     m_simShader.use();
     m_simShader.setFloat("dt", dt);
     m_simShader.setVec2("uUvShift", uvShift);
     m_simShader.setVec2("uDomainCenter", m_domainCenter);
     m_simShader.setFloat("uDomainSize", m_domainSize);
-    m_simShader.setVec2("uBoatPos", m_domainCenter);
-    m_simShader.setVec2("uBowPos", bowPos);
-    m_simShader.setVec2("uSternPos", sternPos);
+    m_simShader.setVec2("uBoatPos", glm::vec2(boatPos.x,boatPos.z));
+    m_simShader.setVec2("uBoatForward",forward);
+    m_simShader.setFloat("uHullContact",hullContact);
     m_simShader.setFloat("uBoatSpeed", boatSpeed);
 
     glActiveTexture(GL_TEXTURE0);

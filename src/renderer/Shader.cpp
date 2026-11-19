@@ -3,8 +3,17 @@
 #include <sstream>
 #include <iostream>
 #include <vector>
+#include <filesystem>
+
+std::string Shader::s_assetRoot;
+void Shader::setAssetRoot(const std::string &path) { s_assetRoot = path; }
 
 std::string Shader::resolveFilePath(const std::string &path) {
+    if (!s_assetRoot.empty()) {
+        auto relative = std::filesystem::path(path).lexically_relative("assets");
+        auto resolved = std::filesystem::path(s_assetRoot) / relative;
+        if (std::ifstream(resolved).good()) return resolved.string();
+    }
     std::ifstream f(path);
     if (f.good()) return path;
 
@@ -76,6 +85,7 @@ Shader::~Shader() {
 }
 
 bool Shader::loadFromFiles(const std::string &vertexPath, const std::string &fragmentPath) {
+    m_locations.clear();
     if (m_programID != 0) {
         glDeleteProgram(m_programID);
         m_programID = 0;
@@ -123,37 +133,45 @@ void Shader::use() const {
 }
 
 void Shader::setBool(const std::string &name, bool value) const {
-    glUniform1i(glGetUniformLocation(m_programID, name.c_str()), (int)value);
+    glUniform1i(location(name), (int)value);
 }
 
 void Shader::setInt(const std::string &name, int value) const {
-    glUniform1i(glGetUniformLocation(m_programID, name.c_str()), value);
+    glUniform1i(location(name), value);
 }
 
 void Shader::setFloat(const std::string &name, float value) const {
-    glUniform1f(glGetUniformLocation(m_programID, name.c_str()), value);
+    glUniform1f(location(name), value);
 }
 
 void Shader::setVec2(const std::string &name, const glm::vec2 &value) const {
-    glUniform2fv(glGetUniformLocation(m_programID, name.c_str()), 1, &value[0]);
+    glUniform2fv(location(name), 1, &value[0]);
 }
 
 void Shader::setVec2(const std::string &name, float x, float y) const {
-    glUniform2f(glGetUniformLocation(m_programID, name.c_str()), x, y);
+    glUniform2f(location(name), x, y);
 }
 
 void Shader::setVec3(const std::string &name, const glm::vec3 &value) const {
-    glUniform3fv(glGetUniformLocation(m_programID, name.c_str()), 1, &value[0]);
+    glUniform3fv(location(name), 1, &value[0]);
 }
 
 void Shader::setVec3(const std::string &name, float x, float y, float z) const {
-    glUniform3f(glGetUniformLocation(m_programID, name.c_str()), x, y, z);
+    glUniform3f(location(name), x, y, z);
 }
 
 void Shader::setMat3(const std::string &name, const glm::mat3 &mat) const {
-    glUniformMatrix3fv(glGetUniformLocation(m_programID, name.c_str()), 1, GL_FALSE, &mat[0][0]);
+    glUniformMatrix3fv(location(name), 1, GL_FALSE, &mat[0][0]);
 }
 
 void Shader::setMat4(const std::string &name, const glm::mat4 &mat) const {
-    glUniformMatrix4fv(glGetUniformLocation(m_programID, name.c_str()), 1, GL_FALSE, &mat[0][0]);
+    glUniformMatrix4fv(location(name), 1, GL_FALSE, &mat[0][0]);
+}
+
+GLint Shader::location(const std::string &name) const {
+    auto found = m_locations.find(name);
+    if (found != m_locations.end()) return found->second;
+    GLint value = glGetUniformLocation(m_programID, name.c_str());
+    m_locations.emplace(name, value);
+    return value;
 }

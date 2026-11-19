@@ -56,6 +56,8 @@ bool Window::init() {
     std::cout << "[INFO] OpenGL Version: " << glGetString(GL_VERSION) << "\n";
     std::cout << "[INFO] GPU Renderer:   " << glGetString(GL_RENDERER) << "\n";
 
+    glfwSwapInterval(1);
+    glDisable(GL_FRAMEBUFFER_SRGB); // Resolve owns the only display conversion.
     glViewport(0, 0, m_framebufferWidth, m_framebufferHeight);
 
     glEnable(GL_DEPTH_TEST);

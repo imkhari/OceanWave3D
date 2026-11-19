@@ -9,7 +9,7 @@ public:
     ~Framebuffer();
 
     bool init(int width, int height, bool useHdr = true);
-    void resize(int width, int height);
+    bool resize(int width, int height);
     void bind() const;
     void unbind() const;
 

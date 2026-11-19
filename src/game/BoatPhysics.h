@@ -33,6 +33,7 @@ public:
     BoatPhysics();
 
     void reset();
+    void setReviewPose(const glm::vec3 &position, float heading) { reset(); m_position = position; m_heading = heading; }
     void update(float dt, const GerstnerWaveModel &waves, float time, float waveHeight, bool canControl, const Input &input);
 
     const glm::vec3 &getPosition() const { return m_position; }

@@ -24,9 +24,10 @@ public:
     ~ParticleSystem();
 
     void init();
-    void emitSplash(const glm::vec3 &origin, const glm::vec3 &baseVelocity, int count, float intensity = 1.0f);
+    void setBudget(int budget) { m_budget = glm::clamp(budget,1,MAX_PARTICLES); }
+    void emitSplash(const glm::vec3 &origin, const glm::vec3 &baseVelocity, int count, float intensity = 1.0f, const glm::vec3 &outward = glm::vec3(0.0f));
     void update(float dt, const GerstnerWaveModel &waves, float time, float waveHeight);
-    void render(const Shader &shader, const Camera &camera, const glm::vec3 &sunColor) const;
+    void render(const Shader &shader, const Camera &camera, const glm::vec3 &sunColor, float aspect = 16.0f/9.0f) const;
     void clear();
 
     int getActiveCount() const { return m_activeCount; }
@@ -34,6 +35,7 @@ public:
 private:
     std::vector<Particle> m_particles;
     int m_activeCount;
+    int m_budget = MAX_PARTICLES;
 
     GLuint m_quadVAO;
     GLuint m_quadVBO;

@@ -49,6 +49,11 @@ public:
 
     CameraMode getCameraMode() const { return m_cameraMode; }
     void cycleCameraMode();
+    void toggleSettings() { m_settingsOpen = !m_settingsOpen; }
+    void toggleMissions() { m_missionsOpen = !m_missionsOpen; }
+    void setQuality(int quality) { m_quality = glm::clamp(quality,0,2); }
+    int getQuality() const { return m_quality; }
+    float getExposure() const { return m_exposure; }
     void setCameraMode(CameraMode mode) { m_cameraMode = mode; }
 
     float getWaveHeight() const { return m_waveHeight; }
@@ -60,6 +65,10 @@ public:
     void switchToFreeRoam();
 
 private:
+    bool m_settingsOpen = false;
+    bool m_missionsOpen = false;
+    int m_quality = 1;
+    float m_exposure = 0.95f;
     GamePlayMode m_playMode;
     GameState m_state;
     CameraMode m_cameraMode;

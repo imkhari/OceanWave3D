@@ -42,9 +42,11 @@ public:
 
     // UI helpers
     void cycleWeather();
+    void setQuality(int quality) { m_quality = glm::clamp(quality,0,2); }
     const char *getWeatherName() const;
 
 private:
+    int m_quality = 1;
     WeatherType m_type;
     float m_targetRainIntensity;
     float m_rainIntensity;

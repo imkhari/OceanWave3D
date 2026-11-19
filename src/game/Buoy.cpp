@@ -17,7 +17,7 @@ Buoy::Buoy(BuoyType type, const glm::vec2 &position)
 
 void Buoy::update(float dt, const GerstnerWaveModel &waves, float time, float waveHeight) {
     // 1. Hydrodynamic Bobbing & Trochoidal Drift: Follow ocean wave height & horizontal displacement
-    glm::vec3 waveDisp = waves.evaluate(m_anchorXZ, time, waveHeight);
+    glm::vec3 waveDisp = waves.surfaceAt(m_anchorXZ, time, waveHeight);
     m_currentPos.x = m_anchorXZ.x + waveDisp.x * 0.4f;
     m_currentPos.z = m_anchorXZ.y + waveDisp.z * 0.4f;
     m_currentPos.y += (waveDisp.y - m_currentPos.y) * std::min(dt * 8.0f, 1.0f);

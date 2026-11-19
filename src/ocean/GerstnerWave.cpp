@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <string>
+#include <algorithm>
 
 GerstnerWaveModel::GerstnerWaveModel() {
     init(1337);
@@ -60,6 +61,9 @@ void GerstnerWaveModel::init(unsigned int seed) {
 
 void GerstnerWaveModel::uploadUniforms(const Shader &shader, float waveHeightScale) const {
     shader.setFloat("waveHeight", waveHeightScale);
+    float slopeBound=0;
+    for (const auto &w:m_waves) slopeBound += w.steepness*w.amplitude*waveHeightScale*6.2831853f/w.wavelength;
+    float horizontalLimit=std::min(1.0f,0.85f/std::max(slopeBound,0.0001f));
     for (int i = 0; i < N_WAVES; ++i) {
         std::string prefix = "waveDir[" + std::to_string(i) + "]";
         shader.setVec2(prefix, m_waves[i].direction);
@@ -74,20 +78,23 @@ void GerstnerWaveModel::uploadUniforms(const Shader &shader, float waveHeightSca
         shader.setFloat(prefix, m_waves[i].omega);
 
         prefix = "steepness[" + std::to_string(i) + "]";
-        shader.setFloat(prefix, m_waves[i].steepness);
+        shader.setFloat(prefix, m_waves[i].steepness * horizontalLimit);
     }
 }
 
 glm::vec3 GerstnerWaveModel::evaluate(const glm::vec2 &pos, float time, float waveHeightScale) const {
     constexpr float PI2 = 6.28318530718f;
     glm::vec3 p(pos.x, 0.0f, pos.y);
+    float slopeBound=0;
+    for(const auto &w:m_waves) slopeBound += w.steepness*w.amplitude*waveHeightScale*PI2/w.wavelength;
+    float horizontalLimit=std::min(1.0f,0.85f/std::max(slopeBound,0.0001f));
 
     for (int i = 0; i < N_WAVES; ++i) {
         glm::vec2 dir = m_waves[i].direction;
         float k = PI2 / m_waves[i].wavelength;
         float f = k * glm::dot(dir, pos) - m_waves[i].omega * time;
         float A = m_waves[i].amplitude * waveHeightScale;
-        float S = m_waves[i].steepness;
+        float S = m_waves[i].steepness * horizontalLimit;
 
         p.x += (S * A * dir.x) * std::sin(f);
         p.z += (S * A * dir.y) * std::sin(f);
@@ -101,4 +108,27 @@ glm::vec3 GerstnerWaveModel::calculateNormal(const glm::vec2 &pos, float time, f
     glm::vec3 pDx = evaluate(pos + glm::vec2(EPSILON, 0.0f), time, waveHeightScale);
     glm::vec3 pDz = evaluate(pos + glm::vec2(0.0f, EPSILON), time, waveHeightScale);
     return glm::normalize(glm::cross(pDz - p, pDx - p));
+}
+
+glm::vec3 GerstnerWaveModel::surfaceAt(const glm::vec2 &worldXZ, float time, float scale) const {
+    glm::vec2 parameter=worldXZ;
+    float slopeBound=0;
+    for(const auto &w:m_waves) slopeBound += w.steepness*w.amplitude*scale*6.2831853f/w.wavelength;
+    float limit=std::min(1.0f,0.85f/std::max(slopeBound,0.0001f));
+    for(int i=0;i<8;++i) {
+        glm::vec3 point=evaluate(parameter,time,scale);
+        glm::vec2 error=glm::vec2(point.x,point.z)-worldXZ;
+        if(glm::dot(error,error)<1.0e-10f) break;
+        float xx=1,zz=1,xz=0;
+        for(const auto &w:m_waves) {
+            float k=6.2831853f/w.wavelength;
+            float d=w.steepness*limit*w.amplitude*scale*k*std::cos(k*glm::dot(w.direction,parameter)-w.omega*time);
+            xx+=d*w.direction.x*w.direction.x;
+            zz+=d*w.direction.y*w.direction.y;
+            xz+=d*w.direction.x*w.direction.y;
+        }
+        float determinant=xx*zz-xz*xz;
+        parameter -= glm::vec2(zz*error.x-xz*error.y,xx*error.y-xz*error.x)/determinant;
+    }
+    return glm::vec3(worldXZ.x,evaluate(parameter,time,scale).y,worldXZ.y);
 }

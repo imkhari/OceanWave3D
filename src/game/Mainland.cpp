@@ -5,6 +5,45 @@
 
 static constexpr float PI = 3.14159265358979323846f;
 
+static float terrainHeight(float x, float z) {
+        // Distance inland from the harbor shoreline edge
+        float dx = x - 76.0f;
+        float dz = -60.0f - z; // positive as z goes negative (northward)
+
+        // Coastal contour: shoreline curves along a gentle natural bay
+        float coastDist = dx + dz * 0.35f - 18.0f;
+        if (coastDist <= 0.0f) {
+            // Shallow tidal seabed
+            return coastDist * 0.25f - 0.5f;
+        }
+
+        // Shoreline gentle rise
+        float h = std::pow(coastDist / 20.0f, 1.25f) * 2.8f;
+
+        // Rolling hill undulations
+        float hill1 = std::sin(x * 0.035f + z * 0.025f) * 6.5f;
+        float hill2 = std::cos(x * 0.065f - z * 0.045f) * 4.0f;
+        h += (hill1 + hill2) * glm::smoothstep(0.0f, 28.0f, coastDist);
+
+        // Northern Cliff Headland (z < -180)
+        if (z < -160.0f) {
+            float cliffFactor = glm::clamp((-160.0f - z) / 45.0f, 0.0f, 1.0f);
+            h += cliffFactor * (18.0f + 12.0f * std::sin(x * 0.05f));
+        }
+
+        // Eastern Distant Mountains (x > 180, z < -170)
+        if (x > 165.0f) {
+            float mtnDist = (x - 165.0f) * 0.55f + (-120.0f - z) * 0.45f;
+            if (mtnDist > 0.0f) {
+                float mountainPeak = std::sin(x * 0.04f) * std::cos(z * 0.04f);
+                h += (mtnDist * 0.55f) + std::max(0.0f, mountainPeak) * 28.0f;
+            }
+        }
+
+        return h;
+}
+
+
 Mainland::Mainland()
     : m_origin(95.0f, 0.0f, -125.0f) {}
 
@@ -35,6 +74,9 @@ void Mainland::render(const Shader &shader) const {
     shader.setInt("uMaterialID", 19);
     m_villageMesh.draw();
 
+    shader.setInt("uMaterialID",21); m_roofMesh.draw();
+    shader.setInt("uMaterialID",22); m_windowMesh.draw();
+
     // 5. Coastal Pine Trees (Evergreen Conifers)
     shader.setInt("uMaterialID", 20);
     m_treesMesh.draw();
@@ -49,50 +91,13 @@ void Mainland::buildTerrainGeometry() {
     std::vector<unsigned int> beachI, hillsI, cliffsI;
 
     // Coastal Mainland Grid: spans X from 76m to 310m, Z from -60m to -300m
-    const int GRID_X = 36;
-    const int GRID_Z = 36;
+    const int GRID_X = 80;
+    const int GRID_Z = 80;
     float minX = 76.0f,  maxX = 300.0f;
     float minZ = -300.0f, maxZ = -60.0f;
     float stepX = (maxX - minX) / (GRID_X - 1);
     float stepZ = (maxZ - minZ) / (GRID_Z - 1);
 
-    auto getHeight = [&](float x, float z) -> float {
-        // Distance inland from the harbor shoreline edge
-        float dx = x - 76.0f;
-        float dz = -60.0f - z; // positive as z goes negative (northward)
-
-        // Coastal contour: shoreline curves along a gentle natural bay
-        float coastDist = dx + dz * 0.35f - 18.0f;
-        if (coastDist <= 0.0f) {
-            // Shallow tidal seabed
-            return coastDist * 0.25f - 0.5f;
-        }
-
-        // Shoreline gentle rise
-        float h = std::pow(coastDist / 20.0f, 1.25f) * 2.8f;
-
-        // Rolling hill undulations
-        float hill1 = std::sin(x * 0.035f + z * 0.025f) * 6.5f;
-        float hill2 = std::cos(x * 0.065f - z * 0.045f) * 4.0f;
-        h += (hill1 + hill2);
-
-        // Northern Cliff Headland (z < -180)
-        if (z < -160.0f) {
-            float cliffFactor = glm::clamp((-160.0f - z) / 45.0f, 0.0f, 1.0f);
-            h += cliffFactor * (18.0f + 12.0f * std::sin(x * 0.05f));
-        }
-
-        // Eastern Distant Mountains (x > 180, z < -170)
-        if (x > 165.0f) {
-            float mtnDist = (x - 165.0f) * 0.55f + (-120.0f - z) * 0.45f;
-            if (mtnDist > 0.0f) {
-                float mountainPeak = std::sin(x * 0.04f) * std::cos(z * 0.04f);
-                h += (mtnDist * 0.55f) + std::max(0.0f, mountainPeak) * 28.0f;
-            }
-        }
-
-        return h;
-    };
 
     // Build grid vertices and classify into Beach, Grassy Hills, or Granite Cliffs
     struct GridPt {
@@ -107,7 +112,7 @@ void Mainland::buildTerrainGeometry() {
         float z = minZ + j * stepZ;
         for (int i = 0; i < GRID_X; ++i) {
             float x = minX + i * stepX;
-            float y = getHeight(x, z);
+            float y = terrainHeight(x, z);
             grid[j * GRID_X + i].pos = glm::vec3(x, y, z);
             grid[j * GRID_X + i].height = y;
         }
@@ -185,10 +190,8 @@ void Mainland::buildTerrainGeometry() {
         { 82.0f, -220.0f, 8.0f, 18.0f }
     };
     for (const auto &st : stacks) {
-        Mesh::addCube(cliffsV, cliffsI, glm::vec3(st.x, st.h * 0.5f - 2.0f, st.z),
-                      glm::vec3(st.r * 2.0f, st.h + 4.0f, st.r * 2.0f));
-        Mesh::addCube(cliffsV, cliffsI, glm::vec3(st.x + 0.5f, st.h - 0.5f, st.z - 0.5f),
-                      glm::vec3(st.r * 1.3f, st.h * 0.45f, st.r * 1.3f));
+        Mesh::addCone(cliffsV,cliffsI,{st.x,-3.0f,st.z},st.r,st.h+4.0f,9);
+        Mesh::addCone(cliffsV,cliffsI,{st.x+st.r*0.4f,-2.5f,st.z+st.r*0.25f},st.r*0.65f,st.h*0.9f,7);
     }
 
     m_beachMesh.upload(beachV, beachI);
@@ -201,11 +204,12 @@ void Mainland::buildTerrainGeometry() {
 // -----------------------------------------------------------------------------
 
 void Mainland::buildVillageGeometry() {
-    std::vector<glm::vec3> V;
-    std::vector<unsigned int> I;
+    std::vector<glm::vec3> V, roofV, windowV;
+    std::vector<unsigned int> I, roofI, windowI;
 
     // Helper: Add complete cottage (Walls + Roof + Chimney + Porch + Glowing Windows)
-    auto addCottage = [&](const glm::vec3 &pos, const glm::vec3 &size, float roofAngle, bool hasPorch) {
+    auto addCottage = [&](glm::vec3 pos, const glm::vec3 &size, float roofAngle, bool hasPorch) {
+        pos.y = terrainHeight(pos.x,pos.z) + 0.1f;
         float hw = size.x * 0.5f;
         float hh = size.y * 0.5f;
         float hd = size.z * 0.5f;
@@ -215,8 +219,14 @@ void Mainland::buildVillageGeometry() {
 
         // 2. Terracotta Slanted Roof
         float roofH = size.y * 0.48f;
-        Mesh::addCube(V, I, pos + glm::vec3(0.0f, size.y + roofH * 0.45f, 0.0f),
-                      glm::vec3(size.x + 0.8f, roofH, size.z + 0.8f));
+        unsigned roofBase=static_cast<unsigned>(roofV.size());
+        for(float z : {-hd-0.4f,hd+0.4f}) {
+            roofV.push_back(pos+glm::vec3(-hw-0.4f,size.y,z));
+            roofV.push_back(pos+glm::vec3(hw+0.4f,size.y,z));
+            roofV.push_back(pos+glm::vec3(0,size.y+roofH,z));
+        }
+        const unsigned faces[]={0,2,1,3,4,5,0,3,5,0,5,2,1,2,5,1,5,4,0,1,4,0,4,3};
+        for(auto index:faces) roofI.push_back(roofBase+index);
 
         // 3. Brick Chimney
         Mesh::addCube(V, I, pos + glm::vec3(hw * 0.65f, size.y + roofH + 0.7f, -hd * 0.4f),
@@ -225,12 +235,12 @@ void Mainland::buildVillageGeometry() {
         // 4. Glowing Windows (Emissive amber glass panes)
         float winW = 0.90f, winH = 1.10f;
         // Front windows facing sea (+Z)
-        Mesh::addCube(V, I, pos + glm::vec3(-hw * 0.45f, hh + 0.2f, hd + 0.08f),
+        Mesh::addCube(windowV, windowI, pos + glm::vec3(-hw * 0.45f, hh + 0.2f, hd + 0.08f),
                       glm::vec3(winW, winH, 0.12f));
-        Mesh::addCube(V, I, pos + glm::vec3(hw * 0.45f, hh + 0.2f, hd + 0.08f),
+        Mesh::addCube(windowV, windowI, pos + glm::vec3(hw * 0.45f, hh + 0.2f, hd + 0.08f),
                       glm::vec3(winW, winH, 0.12f));
         // Side window
-        Mesh::addCube(V, I, pos + glm::vec3(hw + 0.08f, hh + 0.2f, 0.0f),
+        Mesh::addCube(windowV, windowI, pos + glm::vec3(hw + 0.08f, hh + 0.2f, 0.0f),
                       glm::vec3(0.12f, winH, winW));
 
         // 5. Wooden Entrance Porch
@@ -252,14 +262,14 @@ void Mainland::buildVillageGeometry() {
     addCottage(glm::vec3(98.0f,  2.2f, -128.0f), glm::vec3(7.8f, 4.0f, 5.5f),  0.0f, false);
 
     // Boathouse & Slipway near the harbor waterline
-    glm::vec3 boathousePos(90.0f, 0.8f, -118.0f);
+    glm::vec3 boathousePos(90.0f, terrainHeight(90,-118), -118.0f);
     Mesh::addCube(V, I, boathousePos + glm::vec3(0.0f, 2.2f, 0.0f), glm::vec3(11.0f, 4.4f, 7.5f));
     Mesh::addCube(V, I, boathousePos + glm::vec3(0.0f, 4.6f, 0.0f), glm::vec3(11.8f, 1.4f, 8.2f)); // Roof
     Mesh::addCube(V, I, boathousePos + glm::vec3(-4.0f, -0.1f, 3.5f), glm::vec3(3.2f, 0.25f, 8.0f)); // Slipway ramp
     Mesh::addCube(V, I, boathousePos + glm::vec3(4.0f, -0.1f, 3.5f), glm::vec3(3.2f, 0.25f, 8.0f));
 
     // Ancient Coastal Fortress Watchtower (Granite bastion overlooking the bay)
-    glm::vec3 towerPos(112.0f, 16.5f, -86.0f);
+    glm::vec3 towerPos(112.0f, terrainHeight(112,-86), -86.0f);
     // Base Tower Drum
     Mesh::addCube(V, I, towerPos + glm::vec3(0.0f, 7.5f, 0.0f), glm::vec3(8.0f, 15.0f, 8.0f));
     // Crown Battlements / Crenellations
@@ -286,6 +296,8 @@ void Mainland::buildVillageGeometry() {
     }
 
     m_villageMesh.upload(V, I);
+    m_roofMesh.upload(roofV, roofI);
+    m_windowMesh.upload(windowV, windowI);
 }
 
 // -----------------------------------------------------------------------------
@@ -304,16 +316,11 @@ void Mainland::buildVegetationGeometry() {
         Mesh::addCube(V, I, basePos + glm::vec3(0.0f, trunkH * 0.5f, 0.0f),
                       glm::vec3(trunkR, trunkH, trunkR));
 
-        // Layered Conical Evergreen Foliage
-        // Tier 1 (Bottom broad tier)
-        Mesh::addCube(V, I, basePos + glm::vec3(0.0f, trunkH + 1.2f * scale, 0.0f),
-                      glm::vec3(4.2f * scale, 2.5f * scale, 4.2f * scale));
-        // Tier 2 (Middle tier)
-        Mesh::addCube(V, I, basePos + glm::vec3(0.0f, trunkH + 2.8f * scale, 0.0f),
-                      glm::vec3(3.2f * scale, 2.4f * scale, 3.2f * scale));
-        // Tier 3 (Top crown tip)
-        Mesh::addCube(V, I, basePos + glm::vec3(0.0f, trunkH + 4.2f * scale, 0.0f),
-                      glm::vec3(1.9f * scale, 2.2f * scale, 1.9f * scale));
+        for (int tier=0;tier<4;++tier) {
+            float r=(2.2f-tier*0.43f)*scale;
+            float h=(3.6f-tier*0.35f)*scale;
+            Mesh::addCone(V,I,basePos+glm::vec3(0,trunkH-0.8f+tier*1.25f*scale,0),r,h,11);
+        }
     };
 
     // 42 Pine Trees placed around hills, bluffs, and around the village
@@ -350,7 +357,7 @@ void Mainland::buildVegetationGeometry() {
     };
 
     for (const auto &t : trees) {
-        addPineTree(glm::vec3(t.x, t.y, t.z), t.s);
+        addPineTree(glm::vec3(t.x, t.x < 76 ? t.y : terrainHeight(t.x,t.z), t.z), t.s);
     }
 
     m_treesMesh.upload(V, I);

@@ -13,7 +13,7 @@
 static constexpr float PI = 3.14159265358979323846f;
 
 MarineRadar::MarineRadar()
-    : m_isOpen(true),
+    : m_isOpen(false),
       m_headingUp(true),
       m_sweepAngle(0.0f),
       m_sweepSpeed(2.4f), // ~23 RPM
@@ -72,8 +72,8 @@ void MarineRadar::renderUI(const Boat &boat, const Lighthouse &lighthouse,
                            const Harbor *harbor) {
     if (!m_isOpen) return;
 
-    ImGui::SetNextWindowPos(ImVec2(1280 - 325, 10), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(315, 385), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(std::max(10.0f, ImGui::GetIO().DisplaySize.x - 325), 14), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(std::min(315.0f, ImGui::GetIO().DisplaySize.x - 20), std::min(385.0f, ImGui::GetIO().DisplaySize.y - 28)), ImGuiCond_Always);
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
     if (!ImGui::Begin("MARINE RADAR (ARPA / ECDIS)", &m_isOpen, flags)) {
@@ -89,18 +89,20 @@ void MarineRadar::renderUI(const Boat &boat, const Lighthouse &lighthouse,
     for (int i = 0; i < 4; ++i) {
         char buf[16];
         std::snprintf(buf, sizeof(buf), "%.0fm", m_ranges[i]);
-        if (i == m_rangeIdx) {
+        bool selected = i == m_rangeIdx;
+        if (selected) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.1f, 0.6f, 0.3f, 1.0f));
         }
         if (ImGui::Button(buf)) {
             m_rangeIdx = i;
         }
-        if (i == m_rangeIdx) {
+        if (selected) {
             ImGui::PopStyleColor();
         }
         ImGui::SameLine();
     }
 
+    ImGui::NewLine();
     if (ImGui::Button(m_headingUp ? "HEAD-UP" : "NORTH-UP")) {
         m_headingUp = !m_headingUp;
     }
@@ -110,7 +112,7 @@ void MarineRadar::renderUI(const Boat &boat, const Lighthouse &lighthouse,
     // Canvas drawing
     ImDrawList *drawList = ImGui::GetWindowDrawList();
     ImVec2 canvasPos = ImGui::GetCursorScreenPos();
-    float canvasSize = 250.0f;
+    float canvasSize = std::max(120.0f, std::min(250.0f, ImGui::GetContentRegionAvail().x));
     ImVec2 center(canvasPos.x + canvasSize * 0.5f, canvasPos.y + canvasSize * 0.5f);
     float radarRadius = canvasSize * 0.46f;
 

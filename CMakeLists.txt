@@ -143,9 +143,19 @@ if(TARGET glm::glm)
     target_link_libraries(OceanWave3D PRIVATE glm::glm)
 endif()
 
+if(NOT APPLE)
+    find_package(OpenAL REQUIRED)
+    target_link_libraries(OceanWave3D PRIVATE OpenAL::OpenAL)
+endif()
+
 # Copy assets to build directory
 add_custom_command(TARGET OceanWave3D POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_SOURCE_DIR}/assets" "${CMAKE_CURRENT_BINARY_DIR}/assets"
     VERBATIM
 )
+
+include(CTest)
+if(BUILD_TESTING)
+    add_test(NAME ocean_simulation_checks COMMAND OceanWave3D --self-test)
+endif()

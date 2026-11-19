@@ -71,7 +71,8 @@ void ParticleSystem::setupBuffers() {
     glBindVertexArray(0);
 }
 
-void ParticleSystem::emitSplash(const glm::vec3 &origin, const glm::vec3 &baseVelocity, int count, float intensity) {
+void ParticleSystem::emitSplash(const glm::vec3 &origin, const glm::vec3 &baseVelocity, int count, float intensity, const glm::vec3 &outward) {
+    count = std::min(count,std::max(0,m_budget-m_activeCount));
     int emitted = 0;
     for (auto &p : m_particles) {
         if (emitted >= count) break;
@@ -79,19 +80,20 @@ void ParticleSystem::emitSplash(const glm::vec3 &origin, const glm::vec3 &baseVe
 
         p.position = origin;
 
-        // Random fan spray laterally and upward
-        float randX = ((std::rand() / static_cast<float>(RAND_MAX)) - 0.5f) * 2.0f;
-        float randY = (std::rand() / static_cast<float>(RAND_MAX)) * 1.5f + 0.8f;
-        float randZ = ((std::rand() / static_cast<float>(RAND_MAX)) - 0.5f) * 1.2f;
-
-        glm::vec3 sprayDir = glm::normalize(glm::vec3(randX, randY, randZ));
-        float spraySpeed = (3.0f + (std::rand() / static_cast<float>(RAND_MAX)) * 6.0f) * intensity;
-
-        p.velocity = baseVelocity * 0.4f + sprayDir * spraySpeed;
-        p.maxLife = 0.6f + (std::rand() / static_cast<float>(RAND_MAX)) * 0.6f;
-        p.life = p.maxLife;
-        p.size = 0.25f + (std::rand() / static_cast<float>(RAND_MAX)) * 0.35f;
-        p.alpha = 1.0f;
+        auto random01=[] { return std::rand()/static_cast<float>(RAND_MAX); };
+        float scatter=0.75f+random01()*0.5f;
+        glm::vec3 side=outward;
+        if (glm::dot(side,side)<0.01f) {
+            side=glm::vec3(baseVelocity.z,0,-baseVelocity.x);
+            side=glm::dot(side,side)>0.01f ? glm::normalize(side) : glm::vec3(1,0,0);
+            if (random01()<0.5f) side=-side;
+        }
+        float lift=(0.65f+random01()*0.8f)*intensity;
+        p.velocity=baseVelocity*0.18f+side*(1.7f*scatter*intensity)+glm::vec3(0,lift,0);
+        p.maxLife=0.35f+random01()*0.35f;
+        p.life=p.maxLife;
+        p.size=0.07f+random01()*0.10f;
+        p.alpha=0.0f;
 
         emitted++;
     }
@@ -117,20 +119,21 @@ void ParticleSystem::update(float dt, const GerstnerWaveModel &waves, float time
 
         // Kill particle if submerged under ocean surface
         glm::vec2 pos2D(p.position.x, p.position.z);
-        float surfaceY = waves.evaluate(pos2D, time, waveHeight).y;
+        float surfaceY = waves.surfaceAt(pos2D, time, waveHeight).y;
         if (p.position.y < surfaceY - 0.1f) {
             p.life = 0.0f;
             continue;
         }
 
-        p.alpha = p.life / p.maxLife;
-        p.size += 0.3f * dt; // Droplet expands as it disperses
+        float age=1.0f-p.life/p.maxLife;
+        p.alpha=glm::smoothstep(0.0f,0.12f,age)*(1.0f-age)*(1.0f-age);
+        p.size += 0.06f * dt; // Droplet expands as it disperses
 
         m_activeCount++;
     }
 }
 
-void ParticleSystem::render(const Shader &shader, const Camera &camera, const glm::vec3 &sunColor) const {
+void ParticleSystem::render(const Shader &shader, const Camera &camera, const glm::vec3 &sunColor, float aspect) const {
     if (m_activeCount == 0) return;
 
     m_instanceData.clear();
@@ -157,7 +160,7 @@ void ParticleSystem::render(const Shader &shader, const Camera &camera, const gl
 
     shader.use();
     shader.setMat4("view", view);
-    shader.setMat4("projection", camera.getProjectionMatrix(16.0f / 9.0f));
+    shader.setMat4("projection", camera.getProjectionMatrix(aspect));
     shader.setVec3("camRight", camRight);
     shader.setVec3("camUp", camUp);
     shader.setVec3("uSunColor", sunColor);

@@ -6,6 +6,7 @@ out vec4 FragColor;
 
 uniform vec3 viewPos;
 uniform vec3 fogColor;
+uniform float uRainIntensity;
 
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
@@ -23,13 +24,23 @@ uniform int uSpotlightOn;
 uniform vec3 uSpotlightPos;
 uniform vec3 uSpotlightDir;
 
-vec3 ACESFilm(vec3 x) {
-    float a = 2.51;
-    float b = 0.03;
-    float c = 2.43;
-    float d = 0.59;
-    float e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+
+
+
+uniform sampler2D uShadowMap;
+uniform mat4 uLightMatrix;
+uniform int uShadows;
+float visibility(vec3 N, vec3 L) {
+    if (uShadows == 0) return 1.0;
+    vec4 clip = uLightMatrix * vec4(vPos, 1.0);
+    vec3 p = clip.xyz / clip.w * 0.5 + 0.5;
+    if (p.z >= 1.0 || p.z <= 0.0 || any(lessThan(p.xy,vec2(0))) || any(greaterThan(p.xy,vec2(1)))) return 1.0;
+    vec2 texel = 1.0 / vec2(textureSize(uShadowMap, 0));
+    float bias = max(0.0006, 0.0018 * sqrt(max(0.0,1.0-dot(N,L)*dot(N,L))) / max(abs(dot(N,L)),0.15));
+    float visible = 0.0;
+    for (int y=-1;y<=1;++y) for(int x=-1;x<=1;++x)
+        visible += p.z - bias <= texture(uShadowMap,p.xy+vec2(x,y)*texel).r ? 1.0 : 0.0;
+    return visible / 9.0;
 }
 
 void main() {
@@ -52,7 +63,7 @@ void main() {
         vec3 wetRock  = vec3(0.08, 0.09, 0.10);
         vec3 mossRock = vec3(0.14, 0.22, 0.16);
 
-        float wetness = smoothstep(1.5, -0.5, vPos.y);
+        float wetness = (1.0 - smoothstep(-0.5, 1.5, vPos.y));
         float mossiness = clamp(sin(vPos.x * 0.4) * cos(vPos.z * 0.4), 0.0, 1.0);
 
         albedo = mix(darkRock, wetRock, wetness);
@@ -181,7 +192,7 @@ void main() {
     else if (uMaterialID == 12) {
         // --- 12. Harbor Pier Weathered Wood Planks & Pilings ---
         float plank = fract(vLocalPos.x * 0.8 + vLocalPos.z * 0.2);
-        float seam = smoothstep(0.04, 0.08, plank) * smoothstep(0.96, 0.92, plank);
+        float seam = smoothstep(0.04, 0.08, plank) * (1.0 - smoothstep(0.92, 0.96, plank));
         vec3 woodDeck = vec3(0.42, 0.30, 0.19); // Weathered maritime oak
         vec3 darkSeam = vec3(0.14, 0.11, 0.08);
         albedo = mix(darkSeam, woodDeck, seam);
@@ -189,7 +200,7 @@ void main() {
 
         // Waterline dampness & green algae on pilings
         if (vPos.y < 0.6) {
-            float damp = smoothstep(0.6, -1.0, vPos.y);
+            float damp = (1.0 - smoothstep(-1.0, 0.6, vPos.y));
             albedo = mix(albedo, vec3(0.12, 0.18, 0.10), damp * 0.75); // Wet algae
             roughness = mix(roughness, 0.30, damp);
         }
@@ -211,11 +222,11 @@ void main() {
         if (vLocalPos.x < -10.0) {
             // Pierhead Starboard Marker (Green harbor light)
             albedo = vec3(0.1, 0.8, 0.2);
-            emissive = vec3(0.12, 1.8, 0.25) * 5.5;
+            emissive = vec3(0.12, 1.8, 0.25) * mix(0.02, 1.5, nightFactor);
         } else {
             // Warm Amber Boardwalk Post Lamps
             albedo = vec3(1.0, 0.9, 0.6);
-            emissive = vec3(1.6, 1.15, 0.55) * 4.5;
+            emissive = vec3(1.6, 1.15, 0.55) * mix(0.02, 1.5, nightFactor);
         }
     }
     else if (uMaterialID == 15) {
@@ -229,7 +240,7 @@ void main() {
         // --- 16. Mainland Beach Sand & Shoreline ---
         vec3 sandDry = vec3(0.76, 0.68, 0.52);
         vec3 sandWet = vec3(0.48, 0.40, 0.28);
-        float wet = smoothstep(2.0, 0.2, vPos.y);
+        float wet = (1.0 - smoothstep(0.2, 2.0, vPos.y));
         albedo = mix(sandDry, sandWet, wet);
         roughness = mix(0.85, 0.25, wet); // Wet glistening sand near surf
     }
@@ -249,7 +260,7 @@ void main() {
         albedo = mix(graniteDark, graniteLight, rockNoise);
         // Waterline dampness & algae at surf base
         if (vPos.y < 2.0) {
-            float damp = smoothstep(2.0, -1.0, vPos.y);
+            float damp = (1.0 - smoothstep(-1.0, 2.0, vPos.y));
             albedo = mix(albedo, vec3(0.10, 0.16, 0.08), damp * 0.65);
             roughness = mix(roughness, 0.25, damp);
         } else {
@@ -258,29 +269,13 @@ void main() {
     }
     else if (uMaterialID == 19) {
         // --- 19. Coastal Village Cottages, Watchtower & Glowing Windows ---
-        bool isWindow = (fract(vPos.x * 0.8) > 0.65 && fract(vPos.y * 0.8) > 0.45 && vPos.y < 22.0 && vPos.y > 2.0);
-        if (isWindow) {
-            vec3 windowGlow = vec3(1.5, 1.1, 0.45);
-            albedo = vec3(0.9, 0.8, 0.4);
-            emissive = windowGlow * mix(1.2, 4.5, nightFactor);
-            roughness = 0.15;
-        } else if (vPos.y > 18.0 && abs(vPos.x - 112.0) < 1.0) {
-            // Watchtower Beacon Light
-            albedo = vec3(1.0, 0.9, 0.7);
-            emissive = vec3(1.8, 1.3, 0.5) * 6.0;
-        } else if (fract(vPos.y * 0.5) > 0.35 && vPos.y < 16.0) {
-            // Terracotta orange roof tiles
-            albedo = vec3(0.72, 0.28, 0.14);
-            roughness = 0.75;
-        } else {
-            // Whitewashed stone walls / timber framing
-            albedo = vec3(0.68, 0.70, 0.72);
-            roughness = 0.80;
-        }
+        float mortar = step(0.94,fract(vPos.y*1.2));
+        albedo=mix(vec3(0.34,0.31,0.25),vec3(0.22,0.21,0.18),mortar*0.35);
+        roughness=0.86;
     }
     else if (uMaterialID == 20) {
         // --- 20. Coastal Pine Trees (Evergreen Conifers) ---
-        if (fract(vPos.y * 0.3) < 0.15) {
+        if (abs(N.y) < 0.10) {
             // Pine Bark Trunk
             albedo = vec3(0.24, 0.16, 0.10);
             roughness = 0.95;
@@ -288,11 +283,28 @@ void main() {
             // Deep Evergreen Conifer Foliage
             vec3 pineGreen = vec3(0.08, 0.26, 0.10);
             vec3 tipHighlight = vec3(0.14, 0.35, 0.15);
-            albedo = mix(pineGreen, tipHighlight, fract(vPos.y * 0.8));
+            albedo = mix(pineGreen, tipHighlight, 0.5 + 0.2 * sin(vPos.x * 1.7 + vPos.z * 2.3));
             roughness = 0.85;
         }
     }
 
+    else if (uMaterialID == 21) {
+        float tiles=sin(vPos.x*4.0)*sin(vPos.z*3.5)*0.035;
+        albedo=vec3(0.36+tiles,0.10+tiles*0.5,0.045); roughness=0.85;
+    }
+    else if (uMaterialID == 22) {
+        albedo=vec3(0.025,0.06,0.075); roughness=0.2;
+        emissive=vec3(1.0,0.48,0.12)*nightFactor*0.9;
+    }
+    if (uMaterialID == 16 || uMaterialID == 17) {
+        float variation=sin(vPos.x*0.33+sin(vPos.z*0.22))*sin(vPos.z*0.41)*0.04;
+        vec3 sand=mix(vec3(0.24,0.19,0.12),vec3(0.56,0.46,0.30),smoothstep(0.1,2.0,vPos.y));
+        vec3 grass=mix(vec3(0.065,0.13,0.035),vec3(0.14,0.23,0.065),0.5+variation*4.0);
+        albedo=mix(sand,grass,smoothstep(1.3,5.5,vPos.y));
+        float rock=1.0-smoothstep(0.50,0.78,abs(N.y));
+        albedo=mix(albedo,vec3(0.23,0.25,0.26),rock);
+        roughness=0.9;
+    }
     // Direct Sun / Moon Lighting
     float NdotL = max(dot(N, L), 0.0);
     vec3 H = normalize(L + V);
@@ -303,7 +315,7 @@ void main() {
     vec3 specular = lightCol * spec * 0.4;
     vec3 ambient = albedo * mix(uHorizonColor, vec3(0.02, 0.03, 0.06), nightFactor) * 0.35;
 
-    vec3 finalColor = diffuse + specular + ambient + emissive;
+    vec3 finalColor = (diffuse + specular) * visibility(N,L) + ambient + emissive;
 
     // Boat Spotlight illumination on Landmark
     if (uSpotlightOn == 1) {
@@ -319,20 +331,17 @@ void main() {
                 float spotIntensity = smoothstep(spotCutoff, spotFeather, angleCos);
                 float attenuation = 1.0 / (1.0 + 0.06 * spotDist + 0.002 * spotDist * spotDist);
                 float spotNdotL = max(dot(N, -spotDirNorm), 0.0);
-                finalColor += albedo * vec3(1.0, 0.95, 0.85) * (spotIntensity * attenuation * spotNdotL * 6.0);
+                finalColor += albedo * vec3(1.0, 0.95, 0.85) * (spotIntensity * attenuation * spotNdotL * mix(0.15, 4.0, nightFactor));
             }
         }
     }
 
     // Atmospheric Distance Fog
     float dist = length(viewPos - vPos);
-    float fogFactor = 1.0 - exp(-dist * 0.0035);
+    float fogFactor = 1.0 - exp(-max(dist - 25.0, 0.0) * (0.0008 + uRainIntensity * 0.003));
     fogFactor = clamp(fogFactor, 0.0, 1.0);
     finalColor = mix(finalColor, uHorizonColor, fogFactor);
 
-    // ACES Film Tone Mapping
-    vec3 tonemapped = ACESFilm(finalColor);
-    vec3 sRGB = pow(tonemapped, vec3(1.0 / 2.2));
-
-    FragColor = vec4(sRGB, 1.0);
+    // Linear HDR output; display transform is applied once in postprocess.
+    FragColor = vec4(max(finalColor, vec3(0.0)), 1.0);
 }

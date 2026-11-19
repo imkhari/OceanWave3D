@@ -23,6 +23,7 @@ public:
     void uploadUniforms(const Shader &shader, float waveHeightScale) const;
 
     glm::vec3 evaluate(const glm::vec2 &pos, float time, float waveHeightScale = 1.0f) const;
+    glm::vec3 surfaceAt(const glm::vec2 &worldXZ, float time, float scale = 1.0f) const;
     glm::vec3 calculateNormal(const glm::vec2 &pos, float time, float waveHeightScale = 1.0f) const;
 
     const WaveComponent &getComponent(int index) const { return m_waves[index]; }

@@ -48,7 +48,7 @@ void CargoManager::render(const Shader &shader, const GerstnerWaveModel &waves, 
         if (!item.active) continue;
 
         glm::vec2 pos2D(item.pos.x, item.pos.z);
-        glm::vec3 waveP = waves.evaluate(pos2D, time, waveHeight);
+        glm::vec3 waveP = waves.surfaceAt(pos2D, time, waveHeight);
         glm::vec3 nW = waves.calculateNormal(pos2D, time, waveHeight);
 
         glm::vec3 stableN = glm::normalize(glm::mix(glm::vec3(0.0f, 1.0f, 0.0f), nW, 0.5f));

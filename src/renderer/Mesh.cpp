@@ -1,5 +1,7 @@
 #include "Mesh.h"
 #include <utility>
+#include <algorithm>
+#include <cmath>
 
 Mesh::Mesh() : m_vao(0), m_vbo(0), m_ebo(0), m_indexCount(0) {}
 
@@ -68,10 +70,10 @@ void Mesh::draw() const {
     }
 }
 
-void Mesh::drawLines() const {
+void Mesh::drawLines(GLsizei maxIndices) const {
     if (m_vao != 0 && m_indexCount > 0) {
         glBindVertexArray(m_vao);
-        glDrawElements(GL_LINES, m_indexCount, GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_LINES, maxIndices < 0 ? m_indexCount : std::min(maxIndices,m_indexCount), GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
     }
 }
@@ -115,4 +117,47 @@ void Mesh::addCube(std::vector<glm::vec3> &vertices, std::vector<unsigned int> &
     for (int i = 0; i < 36; i++) {
         indices.push_back(start + idx[i]);
     }
+}
+
+void Mesh::addRoundedBox(std::vector<glm::vec3> &V, std::vector<unsigned int> &I,
+                         const glm::vec3 &center, const glm::vec3 &size, float radius) {
+    glm::vec3 half = size * 0.5f;
+    float r = std::min(radius, std::min(half.x, std::min(half.y, half.z)) * 0.8f);
+    glm::vec3 core = half - glm::vec3(r);
+    for (int axis=0;axis<3;++axis) for (int sign : {-1,1}) {
+        int u=(axis+1)%3, v=(axis+2)%3;
+        unsigned start=static_cast<unsigned>(V.size());
+        float us[]={-half[u],-core[u],core[u],half[u]};
+        float vs[]={-half[v],-core[v],core[v],half[v]};
+        for (int y=0;y<4;++y) for(int x=0;x<4;++x) {
+            glm::vec3 p(0); p[axis]=sign*half[axis]; p[u]=us[x]; p[v]=vs[y];
+            glm::vec3 q=glm::clamp(p,-core,core);
+            V.push_back(center+q+glm::normalize(p-q)*r);
+        }
+        for(int y=0;y<3;++y) for(int x=0;x<3;++x) {
+            unsigned a=start+y*4+x,b=a+1,c=a+4,d=c+1;
+            if(sign>0) I.insert(I.end(),{a,b,c,b,d,c});
+            else I.insert(I.end(),{a,c,b,b,c,d});
+        }
+    }
+}
+void Mesh::addCone(std::vector<glm::vec3> &V, std::vector<unsigned int> &I,
+                   const glm::vec3 &base, float radius, float height, int segments) {
+    unsigned start=static_cast<unsigned>(V.size());
+    V.push_back(base+glm::vec3(0,height,0)); V.push_back(base);
+    for(int i=0;i<segments;++i) {
+        float a=i*6.2831853f/segments;
+        float irregular=1.0f+0.065f*std::sin(i*4.7f+base.x);
+        V.push_back(base+glm::vec3(std::cos(a)*radius*irregular,0,std::sin(a)*radius*irregular));
+    }
+    for(int i=0;i<segments;++i) {
+        unsigned a=start+2+i,b=start+2+(i+1)%segments;
+        I.insert(I.end(),{start,b,a,start+1,a,b});
+    }
+}
+
+void Mesh::updateVertices(const std::vector<glm::vec3> &vertices) {
+    glBindBuffer(GL_ARRAY_BUFFER,m_vbo);
+    glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(glm::vec3),vertices.data(),GL_STREAM_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER,0);
 }

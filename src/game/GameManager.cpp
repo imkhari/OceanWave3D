@@ -1,6 +1,8 @@
 #include "GameManager.h"
 #include <iostream>
 #include <cmath>
+#include <fstream>
+#include <algorithm>
 
 GameManager::GameManager()
     : m_playMode(GamePlayMode::FREE_ROAM),
@@ -24,6 +26,37 @@ void GameManager::init(GLFWwindow *window) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
+    auto &io = ImGui::GetIO();
+    io.IniFilename = nullptr; // Layout follows current logical window size, never stale desktop coordinates.
+
+    float sx = 1.0f, sy = 1.0f;
+    glfwGetWindowContentScale(window, &sx, &sy);
+    float dpi = std::max(1.0f, std::max(sx, sy));
+    const char *fonts[] = {
+        "assets/fonts/DejaVuSans.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "C:/Windows/Fonts/segoeui.ttf"
+    };
+    ImFontGlyphRangesBuilder ranges;
+    ranges.AddRanges(io.Fonts->GetGlyphRangesDefault());
+    ranges.AddRanges(io.Fonts->GetGlyphRangesVietnamese());
+    static ImVector<ImWchar> glyphs;
+    ranges.BuildRanges(&glyphs);
+    bool loaded = false;
+    for (auto path : fonts) {
+        if (!std::ifstream(path).good()) continue;
+        ImFontConfig config; config.OversampleH = 2; config.OversampleV = 2;
+        loaded = io.Fonts->AddFontFromFileTTF(path, 16.0f * dpi, &config, glyphs.Data) != nullptr;
+        if (loaded) break;
+    }
+    if (!loaded) std::cerr << "[WARN] Install a Vietnamese font or place DejaVuSans.ttf in assets/fonts\n";
+    io.FontGlobalScale = loaded ? 1.0f / dpi : 1.0f;
+    auto &style = ImGui::GetStyle();
+    style.WindowRounding = 9.0f; style.FrameRounding = 5.0f;
+    style.WindowPadding = ImVec2(14,12); style.ItemSpacing = ImVec2(9,8);
+    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.025f,0.055f,0.08f,0.90f);
+    style.Colors[ImGuiCol_Button] = ImVec4(0.08f,0.28f,0.36f,1.0f);
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 }
@@ -72,219 +105,171 @@ void GameManager::renderUI(Boat &boat, CargoManager &cargo, OceanMesh &ocean, Sk
     // -------------------------------------------------------------------------
     // WINDOW 1: Simulation & Environment Control Panel
     // -------------------------------------------------------------------------
-    ImGui::SetNextWindowPos(ImVec2(10, 200), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(360, 620), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Ocean Simulation & Ship Control");
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    if (m_settingsOpen) {
+    ImGui::SetNextWindowPos(ImVec2(14, 150), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(std::min(460.0f, display.x - 28), std::max(180.0f, display.y - 180)), ImGuiCond_Always);
+    ImGui::Begin("Thiết lập mô phỏng · F1", &m_settingsOpen);
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.48f);
+    ImGui::Combo("Chất lượng", &m_quality, "Low\0Medium\0High\0");
+    ImGui::SliderFloat("Phơi sáng", &m_exposure, 0.45f, 1.5f, "%.2f");
+    ImGui::Text("%.1f FPS · %.2f ms", ImGui::GetIO().Framerate, 1000.0f / std::max(1.0f, ImGui::GetIO().Framerate));
+    ImGui::Text("X %.1f m · Z %.1f m", boat.getPosition().x, boat.getPosition().z);
 
     // 1. Day-Night Cycle
-    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "1. Chu ky Ngay - Dem (Day-Night Cycle):");
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Ánh sáng & thời gian");
     float tod = sky.getTimeOfDay();
-    if (ImGui::SliderFloat("Gio trong ngay", &tod, 0.0f, 24.0f, "%.1f h")) {
+    if (ImGui::SliderFloat("Giờ trong ngày", &tod, 0.0f, 24.0f, "%.1f h")) {
         sky.setTimeOfDay(tod);
     }
 
-    if (ImGui::Button("Trua (13h)")) sky.setTimeOfDay(13.5f);
+    if (ImGui::Button("Trưa")) sky.setTimeOfDay(13.5f);
     ImGui::SameLine();
-    if (ImGui::Button("Hoang hon (18h)")) sky.setTimeOfDay(18.0f);
+    if (ImGui::Button("Hoàng hôn")) sky.setTimeOfDay(18.0f);
+    if (ImGui::Button("Đêm")) sky.setTimeOfDay(23.0f);
     ImGui::SameLine();
-    if (ImGui::Button("Dem trang (23h)")) sky.setTimeOfDay(23.0f);
-    ImGui::SameLine();
-    if (ImGui::Button("Binh minh (6h)")) sky.setTimeOfDay(6.2f);
+    if (ImGui::Button("Bình minh")) sky.setTimeOfDay(6.2f);
 
     ImGui::Separator();
 
     // 2. Weather & Windshield Droplets / Wiper (Features 1 & 2)
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "2. Thoi tiet & Gat nuoc (Weather & Wiper - Phim M / K):");
+    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Thời tiết & kính chắn gió");
     int weatherIdx = static_cast<int>(weather.getWeatherType());
     const char *weatherOptions[] = {
-        "Nang dep / Quang dang (Clear)",
-        "Am u / Nhieu may (Overcast)",
-        "Mua rao & Gon song mua (Rain)",
-        "Bao to & Sam chop (Storm)"
+        "Quang đãng",
+        "Nhiều mây",
+        "Mưa rào",
+        "Giông bão"
     };
-    if (ImGui::Combo("Thoi tiet (M)", &weatherIdx, weatherOptions, 4)) {
+    if (ImGui::Combo("Thời tiết · M", &weatherIdx, weatherOptions, 4)) {
         weather.setWeatherType(static_cast<WeatherType>(weatherIdx));
     }
     if (weather.isLightningActive()) {
-        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.3f, 1.0f), "[!] SAM CHOP DANG DANH!");
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.3f, 1.0f), "Đang có sấm chớp");
     }
 
     bool wiper = weather.isWiperActive();
-    if (ImGui::Checkbox("Can gat nuoc kinh (Wiper - Phim K)", &wiper)) {
+    if (ImGui::Checkbox("Cần gạt nước · K", &wiper)) {
         weather.setWiperActive(wiper);
     }
     float wetness = weather.getWetness();
-    if (ImGui::SliderFloat("Do uot kinh (Wetness)", &wetness, 0.0f, 1.0f, "%.2f")) {
+    if (ImGui::SliderFloat("Độ ướt kính", &wetness, 0.0f, 1.0f, "%.2f")) {
         weather.setWetness(wetness);
     }
-    if (ImGui::Button("Tat nuoc len kinh (Spray)", ImVec2(165, 24))) {
+    if (ImGui::Button("Làm ướt kính", ImVec2(165, 24))) {
         weather.addWetness(0.55f);
     }
     ImGui::SameLine();
-    if (ImGui::Button("Lau sach (Dry)", ImVec2(165, 24))) {
+    if (ImGui::Button("Lau khô", ImVec2(165, 24))) {
         weather.setWetness(0.0f);
     }
 
     if (isUnderwater) {
-        ImGui::TextColored(ImVec4(0.1f, 0.95f, 0.85f, 1.0f), "[~] DANG LAN DUOI BIEN: -%.2f m", underwaterDepth);
+        ImGui::TextColored(ImVec4(0.1f, 0.95f, 0.85f, 1.0f), "Độ sâu camera: %.2f m", underwaterDepth);
     }
 
     ImGui::Separator();
 
     // 3. Beaufort Sea State
-    ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.9f, 1.0f), "3. Cap do bien (Beaufort Scale):");
+    ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.9f, 1.0f), "Trạng thái biển");
     const char *beaufortNames[] = {
-        "Cap 0: Bien lang nhu guong (0.15m)",
-        "Cap 2: Gio thoang song gon (0.55m)",
-        "Cap 4: Gio vua song luot cano (1.25m)",
-        "Cap 6: Gio manh bot trang (2.40m)",
-        "Cap 8: Bao to song cuon (4.0m)",
-        "Cap 10: Cuong phong song than (6.0m)"
+        "Cấp 0 · Lặng",
+        "Cấp 2 · Sóng gợn",
+        "Cấp 4 · Sóng vừa",
+        "Cấp 6 · Gió mạnh",
+        "Cấp 8 · Bão",
+        "Cấp 10 · Cuồng phong"
     };
     int beaufortIdx = m_beaufortScale / 2;
-    if (ImGui::Combo("Trang thai bien", &beaufortIdx, beaufortNames, 6)) {
+    if (ImGui::Combo("Trạng thái biển", &beaufortIdx, beaufortNames, 6)) {
         m_beaufortScale = beaufortIdx * 2;
         float heights[] = { 0.15f, 0.55f, 1.25f, 2.40f, 4.0f, 6.0f };
         m_waveHeight = heights[beaufortIdx];
     }
-    ImGui::SliderFloat("Chieu cao song thu cong", &m_waveHeight, 0.05f, 8.0f, "%.2f m");
+    ImGui::SliderFloat("Biên độ sóng", &m_waveHeight, 0.05f, 8.0f, "%.2f m");
 
     ImGui::Separator();
 
     // 4. Audio System Controls
-    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "4. Am thanh Song dong (Audio System):");
+    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Âm thanh");
     bool muted = audio.isMuted();
-    if (ImGui::Checkbox("Tat am thanh (Mute)", &muted)) {
+    if (ImGui::Checkbox("Tắt âm thanh", &muted)) {
         audio.toggleMute();
     }
     float masterVol = audio.getMasterVolume();
-    if (ImGui::SliderFloat("Am luong tong (Master)", &masterVol, 0.0f, 1.0f, "%.2f")) {
+    if (ImGui::SliderFloat("Âm lượng tổng", &masterVol, 0.0f, 1.0f, "%.2f")) {
         audio.setMasterVolume(masterVol);
     }
     float engineVol = audio.getEngineVolume();
-    if (ImGui::SliderFloat("Tieng dong co (Engine)", &engineVol, 0.0f, 1.0f, "%.2f")) {
+    if (ImGui::SliderFloat("Động cơ", &engineVol, 0.0f, 1.0f, "%.2f")) {
         audio.setEngineVolume(engineVol);
     }
     float oceanVol = audio.getAmbientVolume();
-    if (ImGui::SliderFloat("Tieng song & gio (Ocean/Wind)", &oceanVol, 0.0f, 1.0f, "%.2f")) {
+    if (ImGui::SliderFloat("Sóng & gió", &oceanVol, 0.0f, 1.0f, "%.2f")) {
         audio.setAmbientVolume(oceanVol);
     }
     float sfxVol = audio.getSfxVolume();
-    if (ImGui::SliderFloat("Tieng vo song/chuong (SFX)", &sfxVol, 0.0f, 1.0f, "%.2f")) {
+    if (ImGui::SliderFloat("Hiệu ứng", &sfxVol, 0.0f, 1.0f, "%.2f")) {
         audio.setSfxVolume(sfxVol);
     }
 
     ImGui::Separator();
 
     // 5. Camera View & Boat Features
-    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.5f, 1.0f), "5. Goc nhin & Thiet bi (Hotkeys):");
-    ImGui::Text("Phim C: Goc nhin | Phim E: Neo tau | Phim R: Radar | Phim F: Den | Phim M: Thoi tiet | Phim K: Gat nuoc");
+    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.5f, 1.0f), "Camera & điều khiển");
+    ImGui::TextWrapped("C: Camera · E: Neo tàu · R: Radar · F: Đèn · M: Thời tiết · K: Gạt nước · N: Nhiệm vụ · F1: Thiết lập · Q/Z: Zoom orbit");
     int camIdx = static_cast<int>(m_cameraMode);
-    const char *camModes[] = { "Nguoi thu ba (Third-Person)", "Buong lai (Cockpit FPS)", "Xoay tu do (Orbit)" };
-    if (ImGui::Combo("Goc nhin", &camIdx, camModes, 3)) {
+    const char *camModes[] = { "Theo tàu", "Buồng lái", "Xoay tự do" };
+    if (ImGui::Combo("Góc nhìn", &camIdx, camModes, 3)) {
         m_cameraMode = static_cast<CameraMode>(camIdx);
     }
 
     bool spot = boat.isSpotlightOn();
-    if (ImGui::Checkbox("Bat den pha chieu bien (Spotlight - Phim F)", &spot)) {
+    if (ImGui::Checkbox("Đèn pha · F", &spot)) {
         boat.setSpotlight(spot);
     }
 
     ImGui::Separator();
 
     // 6. Hydrodynamics Telemetry
-    ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "6. Vat ly noi (Hydrodynamics):");
+    ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Vật lý & công cụ");
     auto &params = boat.getPhysics().getParams();
-    ImGui::SliderFloat("Khoi luong (Mass)", &params.mass, 500.0f, 3000.0f, "%.0f kg");
-    ImGui::SliderFloat("Nang mui khi ga (Bow Rise)", &params.bowRiseFactor, 0.0f, 3.0f, "%.2f");
-    ImGui::SliderFloat("Nghieng man khi re (Turn Bank)", &params.turnBankFactor, 0.0f, 3.0f, "%.2f");
+    ImGui::SliderFloat("Khối lượng", &params.mass, 500.0f, 3000.0f, "%.0f kg");
+    ImGui::SliderFloat("Nâng mũi khi tăng ga", &params.bowRiseFactor, 0.0f, 3.0f, "%.2f");
+    ImGui::SliderFloat("Nghiêng khi rẽ", &params.turnBankFactor, 0.0f, 3.0f, "%.2f");
 
-    if (ImGui::Button("Reset Thuyen ve toa do 0", ImVec2(240, 26))) {
+    if (ImGui::Button("Đặt lại tàu", ImVec2(240, 26))) {
         boat.reset();
     }
+    ImGui::PopItemWidth();
     ImGui::End();
 
-    // -------------------------------------------------------------------------
-    // WINDOW 2: Navigation Telemetry & Mission Control HUD
-    // -------------------------------------------------------------------------
-    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(350, 185), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowCollapsed(false, ImGuiCond_Once);
-    ImGui::Begin("NAVIGATION & MISSION CONTROL");
-
-    // Compass & Speed Calculations
-    float speedKnots = boat.getSpeed() * 1.94384f;
-    float speedKmh   = boat.getSpeed() * 3.6f;
-
-    float headingDeg = glm::degrees(boat.getHeading());
-    while (headingDeg < 0.0f)   headingDeg += 360.0f;
-    while (headingDeg >= 360.0f) headingDeg -= 360.0f;
-
-    const char *compassPoints[] = { "Bac (N)", "Dong Bac (NE)", "Dong (E)", "Dong Nam (SE)",
-                                    "Nam (S)", "Tay Nam (SW)", "Tay (W)", "Tay Bac (NW)" };
-    int compassIdx = static_cast<int>((headingDeg + 22.5f) / 45.0f) % 8;
-
-    glm::vec3 boatPos = boat.getPosition();
-    float distToLighthouse = glm::length(glm::vec2(boatPos.x - lighthouse.getPosition().x, boatPos.z - lighthouse.getPosition().z));
-    float distToBuoy = buoyManager.getDistanceToNearestBuoy(boatPos);
-
-    if (m_playMode == GamePlayMode::FREE_ROAM) {
-        ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "[ CHE DO: LAI TU DO KHAM PHA ]");
-        ImGui::Text("Toc do: %.1f knots (%.1f km/h)", speedKnots, speedKmh);
-        ImGui::Text("Huong la ban: %.0f deg - %s", headingDeg, compassPoints[compassIdx]);
-        ImGui::Text("Toa do: X: %+.1f m | Z: %+.1f m", boatPos.x, boatPos.z);
-        float distToHarbor = harbor.getDistanceToPier(boatPos);
-        ImGui::Text("Hai Dang: %.1fm | Cau Cang: %.1fm | Dat Lien: %.1fm", distToLighthouse, distToHarbor, std::max(0.0f, 85.0f - boatPos.x));
-
-        if (harbor.isDocked()) {
-            ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.4f, 1.0f), "[✓] DA NEO TAU TAI CAU CANG (MOORED)");
-            ImGui::TextColored(ImVec4(1.0f, 0.95f, 0.3f, 1.0f), ">> Nhan [E] hoac [W] de thao day tiep tuc hanh trinh <<");
-        } else if (harbor.canDock()) {
-            ImGui::TextColored(ImVec4(1.0f, 0.95f, 0.2f, 1.0f), "[!] DA VAO VI TRI CAP BEN - BAM [E] DE NEO TAU!");
-        } else if (distToHarbor < 45.0f) {
-            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), ">> Dang tien vao cau cang (Giam toc < 5.5 kts)");
-        }
-
-        ImGui::Separator();
-        if (ImGui::Button("THU THACH NHIEM VU (MISSION CHALLENGE)", ImVec2(330, 32))) {
-            startMission(boat, cargo);
-        }
-    } else {
-        // MISSION MODE
-        ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.2f, 1.0f), "[ CHE DO: THU THAP 10 THUNG HANG ]");
-
-        if (m_state == GameState::PLAYING) {
-            ImGui::Text("THOI GIAN CON LAI: %.1f s", std::max(0.0f, m_gameTimer));
-            float timeFraction = glm::clamp(m_gameTimer / 60.0f, 0.0f, 1.0f);
-            ImGui::ProgressBar(timeFraction, ImVec2(330, 16));
-
-            ImGui::Text("TIEN DO: %d / %d THUNG HANG", m_score, m_targetScore);
-            ImGui::ProgressBar(static_cast<float>(m_score) / static_cast<float>(m_targetScore), ImVec2(330, 16));
-
-            if (ImGui::Button("HUY / QUAY LAI LAI TU DO", ImVec2(330, 26))) {
-                switchToFreeRoam();
-            }
-        } else if (m_state == GameState::WON) {
-            ImGui::TextColored(ImVec4(0.1f, 1.0f, 0.2f, 1.0f), "CHUC MUNG! BAN DA THANG!");
-            ImGui::Text("Thoi gian con du: %.1f s", m_gameTimer);
-            if (ImGui::Button("CHOI LAI (REPLAY)", ImVec2(160, 30))) {
-                startMission(boat, cargo);
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("LAI TU DO", ImVec2(160, 30))) {
-                switchToFreeRoam();
-            }
-        } else if (m_state == GameState::LOST) {
-            ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "HET GIO! NHIEM VU THAT BAI.");
-            if (ImGui::Button("THU LAI (RETRY)", ImVec2(160, 30))) {
-                startMission(boat, cargo);
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("LAI TU DO", ImVec2(160, 30))) {
-                switchToFreeRoam();
-            }
-        }
     }
-
+    const float heading = std::fmod(glm::degrees(boat.getHeading()) + 36000.0f, 360.0f);
+    ImGui::SetNextWindowPos(ImVec2(14,14), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(std::min(310.0f, display.x - 28),0), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.84f);
+    ImGui::Begin("Hải trình", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoNav);
+    ImGui::TextColored(ImVec4(0.35f,0.85f,0.9f,1), "OCEANWAVE / HẢI TRÌNH");
+    ImGui::Text("%.1f kn    |    %03.0f°", boat.getSpeed()*1.94384f, heading);
+    if (m_playMode == GamePlayMode::MISSION) {
+        ImGui::TextWrapped("Thu hồi hàng: %d/%d · Còn %.0f giây", m_score, m_targetScore, std::max(0.0f,m_gameTimer));
+        if (m_state != GameState::PLAYING) ImGui::TextWrapped(m_state == GameState::WON ? "Hoàn thành! Nhấn N để tiếp tục." : "Hết giờ. Nhấn N để thử lại.");
+    } else {
+        ImGui::Text("Cảng hải đăng · %.0f m", harbor.getDistanceToPier(boat.getPosition()));
+    }
+    if (harbor.isDocked()) ImGui::TextWrapped("Đã neo an toàn · E/W để khởi hành");
+    else if (harbor.canDock()) ImGui::TextWrapped("Nhấn E để neo tàu");
+    ImGui::TextDisabled("F1 Thiết lập   N Nhiệm vụ   R Radar");
     ImGui::End();
+
+    if (m_missionsOpen) {
+        ImGui::SetNextWindowPos(ImVec2(display.x*0.5f,display.y*0.5f),ImGuiCond_Appearing,ImVec2(0.5f,0.5f));
+        ImGui::SetNextWindowSize(ImVec2(std::min(420.0f,display.x-28),0),ImGuiCond_Always);
+        ImGui::Begin("Nhiệm vụ · N", &m_missionsOpen, ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::TextWrapped("Thu hồi 10 thùng hàng trôi dạt trong 60 giây. Dùng radar để tìm hàng, điều khiển tàu đến gần để thu hồi.");
+        if (ImGui::Button("Bắt đầu / Thử lại", ImVec2(-1,32))) { startMission(boat,cargo); m_missionsOpen=false; }
+        if (ImGui::Button("Lái tự do",ImVec2(-1,32))) { switchToFreeRoam(); m_missionsOpen=false; }
+        ImGui::End();
+    }
 }

@@ -21,6 +21,7 @@ private:
     Mesh m_hillsMesh;    // Material ID 17: Rolling Emerald Grassy Slopes
     Mesh m_cliffsMesh;   // Material ID 18: Granite Sea Cliffs & Distant Mountains
     Mesh m_villageMesh;  // Material ID 19: Coastal Cottages, Watchtower, Boathouse & Windows
+    Mesh m_roofMesh, m_windowMesh;
     Mesh m_treesMesh;    // Material ID 20: Coastal Conifer / Pine Trees
 
     void buildTerrainGeometry();

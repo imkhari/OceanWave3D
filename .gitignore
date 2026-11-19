@@ -16,3 +16,7 @@ out/
 compile_commands.json
 imgui.ini
 main.exe
+
+# Relocated build directories and local verification artifacts
+build-*/
+/artifacts/

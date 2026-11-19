@@ -39,10 +39,10 @@ glm::vec3 Sky::getSunColor() const {
         float t = glm::clamp(altitude / 0.25f, 0.0f, 1.0f);
         glm::vec3 sunsetColor(1.0f, 0.45f, 0.12f);
         glm::vec3 noonColor(1.0f, 0.98f, 0.92f);
-        return glm::mix(sunsetColor, noonColor, t) * 3.2f;
+        return glm::mix(sunsetColor, noonColor, t) * (1.8f * glm::smoothstep(-0.05f, 0.12f, altitude));
     }
 
-    return glm::vec3(1.0f, 0.98f, 0.92f) * 3.0f;
+    return glm::vec3(1.0f, 0.98f, 0.92f) * 1.8f;
 }
 
 glm::vec3 Sky::getMoonColor() const {

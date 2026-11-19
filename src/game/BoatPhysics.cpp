@@ -118,7 +118,7 @@ void BoatPhysics::update(float dt, const GerstnerWaveModel &waves, float time, f
 
         // Sample water wave height at probe's world (x, z)
         glm::vec2 pos2D(probe.worldPos.x, probe.worldPos.z);
-        float waveSurfaceY = waves.evaluate(pos2D, time, waveHeight).y;
+        float waveSurfaceY = waves.surfaceAt(pos2D, time, waveHeight).y;
 
         probe.submersion = waveSurfaceY - probe.worldPos.y;
         probe.isSubmerged = (probe.submersion > 0.0f);
@@ -144,7 +144,7 @@ void BoatPhysics::update(float dt, const GerstnerWaveModel &waves, float time, f
     glm::vec3 bowWorldOffset = glm::vec3(rotMatrix * glm::vec4(m_bowTipProbe.localPos, 1.0f));
     m_bowTipProbe.worldPos = m_position + bowWorldOffset;
     glm::vec2 bowPos2D(m_bowTipProbe.worldPos.x, m_bowTipProbe.worldPos.z);
-    float bowWaveY = waves.evaluate(bowPos2D, time, waveHeight).y;
+    float bowWaveY = waves.surfaceAt(bowPos2D, time, waveHeight).y;
     m_bowTipProbe.submersion = bowWaveY - m_bowTipProbe.worldPos.y;
     m_bowTipProbe.isSubmerged = (m_bowTipProbe.submersion > 0.0f);
 

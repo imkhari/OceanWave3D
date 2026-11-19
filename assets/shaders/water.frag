@@ -14,7 +14,7 @@ uniform vec3 viewPos;
 uniform float time;
 uniform mat4 view;
 uniform mat4 projection;
-uniform vec2 uResolution;
+uniform int uSSRSteps;
 
 // Scene G-Buffer for SSR and Refraction
 uniform sampler2D uSceneColor;
@@ -129,20 +129,13 @@ float Fresnel_Schlick(float cosTheta, float F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-vec3 ACESFilm(vec3 x) {
-    float a = 2.51;
-    float b = 0.03;
-    float c = 2.43;
-    float d = 0.59;
-    float e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-}
+
 
 // Advanced Screen-Space Reflections (SSR) with Binary Search Refinement
 vec3 computeSSR(vec3 vPosVS, vec3 rayDirVS, vec3 fallbackSky, float distToBoat, float distToLighthouse) {
     // Only trace rays for reflective structures within relevant range
     bool nearReflector = (distToBoat < 42.0) || (distToLighthouse < 75.0);
-    if (!nearReflector || rayDirVS.z >= 0.0) {
+    if (uSSRSteps == 0 || !nearReflector || rayDirVS.z >= 0.0) {
         return fallbackSky;
     }
 
@@ -150,7 +143,7 @@ vec3 computeSSR(vec3 vPosVS, vec3 rayDirVS, vec3 fallbackSky, float distToBoat, 
     const float STEP_SIZE = 1.4;
     float currentStep = 0.7;
 
-    for (int i = 0; i < MAX_STEPS; ++i) {
+    for (int i = 0; i < MAX_STEPS && i < uSSRSteps; ++i) {
         vec3 marchPosVS = vPosVS + rayDirVS * currentStep;
         if (marchPosVS.z > -NEAR_PLANE) break;
 
@@ -185,9 +178,9 @@ vec3 computeSSR(vec3 vPosVS, vec3 rayDirVS, vec3 fallbackSky, float distToBoat, 
                 }
             }
 
-            float edgeFade = smoothstep(0.0, 0.12, sampleUV.x) * smoothstep(1.0, 0.88, sampleUV.x)
-                           * smoothstep(0.0, 0.12, sampleUV.y) * smoothstep(1.0, 0.88, sampleUV.y);
-            float distFade = max(smoothstep(42.0, 5.0, distToBoat), smoothstep(75.0, 15.0, distToLighthouse));
+            float edgeFade = smoothstep(0.0, 0.12, sampleUV.x) * (1.0 - smoothstep(0.88, 1.0, sampleUV.x))
+                           * smoothstep(0.0, 0.12, sampleUV.y) * (1.0 - smoothstep(0.88, 1.0, sampleUV.y));
+            float distFade = max((1.0 - smoothstep(5.0, 42.0, distToBoat)), (1.0 - smoothstep(15.0, 75.0, distToLighthouse)));
             vec3 hitColor = texture(uSceneColor, sampleUV).rgb;
             return mix(fallbackSky, hitColor, edgeFade * distFade * 0.88);
         }
@@ -216,8 +209,23 @@ void main() {
               + (noise(uvCap2 + vec2(0.0, 0.03)) - noise(uvCap2 - vec2(0.0, 0.03))) * 0.035;
 
     vec3 rainRipple = calculateRainCapillaries(vPos.xz, time, uRainIntensity);
-    vec3 N = normalize(baseN + vec3(-dRx, 0.0, -dRz) + rainRipple);
+    float footprint = max(length(dFdx(vPos.xz)), length(dFdy(vPos.xz)));
+    float detailFade = 1.0 - smoothstep(0.15, 1.2, footprint);
+    vec3 N = normalize(baseN + (vec3(-dRx, 0.0, -dRz) * 2.2 + rainRipple) * detailFade);
     if (!gl_FrontFacing || uIsUnderwater == 1) N = -N;
+
+    vec2 wakeUV=(vPos.xz-uFoamCenter)/uFoamSize+0.5;
+    vec2 wakeField=vec2(0);
+    if (all(greaterThan(wakeUV,vec2(0.01))) && all(lessThan(wakeUV,vec2(0.99)))) {
+        wakeField=texture(uFoamTexture,wakeUV).rg;
+        if (wakeField.g>0.0005) {
+            vec2 texel=1.0/vec2(textureSize(uFoamTexture,0));
+            float stepWorld=uFoamSize*texel.x;
+            float dx=texture(uFoamTexture,wakeUV+vec2(texel.x,0)).g-texture(uFoamTexture,wakeUV-vec2(texel.x,0)).g;
+            float dz=texture(uFoamTexture,wakeUV+vec2(0,texel.y)).g-texture(uFoamTexture,wakeUV-vec2(0,texel.y)).g;
+            N=normalize(N+vec3(-dx,0,-dz)*(1.5/max(2.0*stepWorld,0.01)));
+        }
+    }
 
     vec3 V = normalize(viewPos - vPos);
     float NdotV = max(dot(N, V), 0.001);
@@ -315,18 +323,18 @@ void main() {
     // 5. Dual-Lobe GGX Specular & Dancing Sun Glitter (Sparkles)
     // -------------------------------------------------------------------------
     // Lobe 1: Broad specular sheen
-    float roughness1 = 0.085;
+    float roughness1 = mix(0.16, 0.25, uRainIntensity);
     float D1 = D_GGX(NdotH, roughness1);
     float G1 = G_SchlickSmith(NdotV, NdotL, roughness1);
     float F_spec = Fresnel_Schlick(VdotH, WATER_F0);
-    vec3 broadSpecular = (D1 * G1 * F_spec / max(4.0 * NdotV * NdotL, 0.001)) * mainLightCol * 3.2;
+    vec3 broadSpecular = (D1 * G1 * F_spec / max(4.0 * NdotV * NdotL, 0.001)) * mainLightCol * NdotL * 0.85;
 
     // Lobe 2: High-intensity dancing sun sparkles (glitter path)
     float glitterSparkle = 0.0;
     if (isSunActive && NdotL > 0.01) {
         float sparkDist = pow(max(dot(N, H), 0.0), 320.0);
-        float sparkMod = sin(dot(vPos.xz, vec2(95.0, 65.0)) + time * 14.0) * 0.5 + 0.5;
-        glitterSparkle = sparkDist * sparkMod * 16.0;
+        float sparkMod = noise(vPos.xz * 2.0 + time * 0.15);
+        glitterSparkle = sparkDist * sparkMod * 3.0 * detailFade;
     }
     vec3 specularGlitter = mainLightCol * glitterSparkle * F_spec;
 
@@ -350,7 +358,7 @@ void main() {
 
                 vec3 spotH = normalize(-spotDirNorm + V);
                 float spotSpec = pow(max(dot(N, spotH), 0.0), 64.0);
-                vec3 spotColor = vec3(1.0, 0.95, 0.85) * (spotIntensity * attenuation * 5.0);
+                vec3 spotColor = vec3(1.0, 0.95, 0.85) * (spotIntensity * attenuation * mix(0.12, 3.0, nightFactor));
                 finalColor += spotColor * (max(dot(N, -spotDirNorm), 0.0) * 0.6 + spotSpec * 1.5);
             }
         }
@@ -384,44 +392,31 @@ void main() {
     // 8. Multi-Source Physical Foam Simulation & 3D Shading
     // -------------------------------------------------------------------------
     // 8a. Wave crest folding whitecaps (Jacobian determinant)
-    float jacobianFoam = smoothstep(0.32, -0.18, vJacobian);
+    float jacobianFoam = (1.0 - smoothstep(-0.18, 0.32, vJacobian));
 
-    // 8b. Persistent wake & bow spray from FoamSimulator FBO
-    vec2 foamUV = (vPos.xz - uFoamCenter) / uFoamSize + 0.5;
-    float persistentFoam = 0.0;
-    if (foamUV.x >= 0.0 && foamUV.x <= 1.0 && foamUV.y >= 0.0 && foamUV.y <= 1.0) {
-        persistentFoam = texture(uFoamTexture, foamUV).r;
-    }
+    // 8b. Transported foam: follows the path left on the water, including turns.
+    float persistentFoam=wakeField.r;
 
     // 8c. Island shoreline surf (crashing waves on rocky islet at 85, -105)
     float isletShoreDist = length(vPos.xz - vec2(85.0, -105.0));
     float shoreSurf = 0.0;
     if (isletShoreDist < 18.0 && isletShoreDist > 5.0) {
-        float shoreProximity = smoothstep(18.0, 9.0, isletShoreDist);
+        float shoreProximity = (1.0 - smoothstep(9.0, 18.0, isletShoreDist));
         float shoreWavePulse = smoothstep(0.2, 0.8, sin(time * 1.5 - isletShoreDist * 1.2) * 0.5 + 0.5);
         shoreSurf = shoreProximity * shoreWavePulse * 1.4;
     }
 
-    // 8d. Outboard motor propeller froth cone
-    vec2 boatLocal = vPos.xz - uBoatPos.xz;
-    float cosH = cos(-uBoatHeading);
-    float sinH = sin(-uBoatHeading);
-    vec2 rotatedBoatLocal = vec2(boatLocal.x * cosH - boatLocal.y * sinH, boatLocal.x * sinH + boatLocal.y * cosH);
-    float motorWake = 0.0;
-    if (rotatedBoatLocal.y < -1.2 && rotatedBoatLocal.y > -18.0 && abs(rotatedBoatLocal.x) < (-rotatedBoatLocal.y * 0.28 + 0.8)) {
-        float motorIntensity = clamp(uBoatSpeed / 5.0, 0.0, 1.5);
-        motorWake = smoothstep(-18.0, -2.0, rotatedBoatLocal.y) * motorIntensity * 1.3;
-    }
+    // Hull/propeller foam now lives in the transported field. No rigid triangle attached to the boat.
 
-    // Cellular bubble micro-structure
-    vec2 microUV = vPos.xz * 0.45 + vec2(time * 0.04, time * 0.02);
-    float bubblePattern = (1.0 - cellularFoam(microUV * 2.8));
-
-    float totalFoam = clamp(jacobianFoam * 0.85 + persistentFoam * 1.25 + shoreSurf + motorWake, 0.0, 1.0) * bubblePattern;
+    // Fine irregular foam grain, without metre-sized cellular tiles.
+    float grain=noise(vPos.xz*9.0+vec2(time*0.08,-time*0.06));
+    float patches=noise(vPos.xz*2.6+vec2(-time*0.10,time*0.05));
+    float foamTexture=mix(0.42,1.0,grain)*mix(0.65,1.0,patches);
+    float totalFoam=clamp(jacobianFoam*0.85+persistentFoam*0.95+shoreSurf,0.0,1.0)*foamTexture;
 
     // 3D Foam lighting (self-shadowing ambient occlusion)
     float foamAO = clamp(N.y * 0.6 + 0.4, 0.3, 1.0);
-    vec3 foamDayColor = vec3(0.97, 0.96, 0.95) * (foamAO * 0.75 + 0.25 * mainLightCol);
+    vec3 foamDayColor = vec3(0.72, 0.79, 0.80) * (foamAO * 0.45 + 0.30 * mainLightCol);
     vec3 foamNightColor = vec3(0.12, 0.16, 0.22);
     vec3 foamColor = mix(foamDayColor, foamNightColor, nightFactor * 0.8);
 
@@ -439,10 +434,7 @@ void main() {
     finalColor = mix(finalColor, ambientFog, fogFactor);
 
     // -------------------------------------------------------------------------
-    // 10. ACES Tone Mapping & Gamma 2.2 Correction
+    // 10. Linear HDR output
     // -------------------------------------------------------------------------
-    vec3 tonemapped = ACESFilm(finalColor);
-    vec3 sRGB = pow(tonemapped, vec3(1.0 / 2.2));
-
-    FragColor = vec4(sRGB, 1.0);
+    FragColor = vec4(max(finalColor, vec3(0.0)), 1.0);
 }
